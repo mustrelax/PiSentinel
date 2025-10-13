@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Pi-Sentinel • WebRTC</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{color-scheme:dark light}
+    body { margin:0; background:#111; color:#eee; font-family:system-ui, sans-serif; }
+    header {
+      padding:12px 16px; font-size:18px; background:#181818; position:sticky; top:0;
+      display:flex; align-items:center; gap:12px; justify-content:space-between;
+    }
+    .right { display:flex; align-items:center; gap:10px; }
+    main { padding:16px; display:grid; gap:12px; }
+    video { width:100%; max-width: 960px; height:auto; background:#000; border-radius:12px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid #444; background:#222; color:#eee; cursor:pointer; }
+    pre { background:#000; padding:12px; border-radius:8px; max-height:180px; overflow:auto; }
+    .muted { opacity:.7; font-size:13px; }
+    .badge {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; border:1px solid #444; border-radius:999px; background:#202020; font-size:13px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>Pi-Sentinel • WebRTC live</div>
+    <div class="right">
+      <span class="badge">👤 <span id="viewerCount">0</span></span>
+      <a class="muted" href="/logout" style="text-decoration:none;">Logout</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="row">
+      <button id="start">Connect</button>
+      <span class="muted">Same LAN. Prefers H.264; falls back to VP8.</span>
+    </div>
+    <video id="video" playsinline autoplay muted></video>
+    <pre id="log"></pre>
+  </main>
+
+  <script>
+    const startBtn = document.getElementById('start');
+    const videoEl = document.getElementById('video');
+    const logEl = document.getElementById('log');
+    const viewerCountEl = document.getElementById('viewerCount');
+    const log = (...a) => { console.log(...a); logEl.textContent += a.join(' ') + "\n"; };
+
+    async function pollViewers() {
+      try {
+        const res = await fetch('/stats', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        viewerCountEl.textContent = (data && typeof data.viewers === 'number') ? data.viewers : 0;
+      } catch (e) {
+        // ignore 
+      }
+    }
+
+    setInterval(pollViewers, 2000);
+    pollViewers(); // initial
+
+    async function connect() {
+      startBtn.disabled = true;
+
+      const pc = new RTCPeerConnection({ iceServers: [] });
+
+      pc.addEventListener('iceconnectionstatechange', () => log('ICE:', pc.iceConnectionState));
+      pc.addEventListener('connectionstatechange',  () => { log('PC:', pc.connectionState); pollViewers(); });
+      pc.addEventListener('track', (evt) => {
+        log('ontrack kind=', evt.track.kind);
+        if (evt.streams && evt.streams[0]) {
+          videoEl.srcObject = evt.streams[0];
+        } else {
+          const s = new MediaStream([evt.track]);
+          videoEl.srcObject = s;
+        }
+      });
+
+      const transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+      const caps = RTCRtpReceiver.getCapabilities('video');
+      log('Codecs:', caps.codecs.map(c => c.mimeType).join(', '));
+      let pref = [];
+      const h264 = caps.codecs.find(c => c.mimeType.toLowerCase() === 'video/h264');
+      const vp8  = caps.codecs.find(c => c.mimeType.toLowerCase() === 'video/vp8');
+      if (h264) pref.push(h264);
+      if (vp8)  pref.push(vp8);
+      if (pref.length && transceiver.setCodecPreferences) {
+        transceiver.setCodecPreferences(pref);
+        log('Pref order:', pref.map(c => c.mimeType).join(' > '));
+      }
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const res = await fetch('/offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type })
+      });
+      if (!res.ok) {
+        log('Offer failed', res.status);
+        startBtn.disabled = false;
+        return;
+      }
+      const answer = await res.json();
+      await pc.setRemoteDescription(answer);
+      log('Answer set.');
+
+      setTimeout(pollViewers, 500);
+    }
+
+    startBtn.onclick = connect;
+  </script>
+</body>
+</html>
