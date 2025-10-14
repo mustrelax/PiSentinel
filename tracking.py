@@ -10,7 +10,6 @@ from simple_pid import PID
 import board
 import busio
 import socket
-# import NDIlib as ndi
 from adafruit_pca9685 import PCA9685
 from adafruit_motor import servo
 
@@ -66,52 +65,6 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
         fps = video_capture.get(cv2.CAP_PROP_FPS)
         print(f"Capture card successfully initialized. Actual settings: {int(width)}x{int(height)} @ {fps:.2f} FPS")
 
-    # elif mode == "simulation":
-    #     # --- NDI Video Receiver Setup ---
-    #     print("Initializing NDI...")
-    #     if not ndi.initialize():
-    #         print("Error: Could not initialize NDI.")
-    #         return
-
-    #     ndi_find = ndi.find_create_v2()
-    #     if not ndi_find:
-    #         print("Error: Could not create NDI finder.")
-    #         ndi.destroy()
-    #         return
-
-    #     ARANAN_YAYIN_ADI = "VENUZDONOA (yayin)"
-    #     source = None
-    #     print(f"Searching for NDI stream: '{ARANAN_YAYIN_ADI}'")
-    #     while not stop_event.is_set() and source is None:
-    #         ndi.find_wait_for_sources(ndi_find, 1000)
-    #         sources = ndi.find_get_current_sources(ndi_find)
-    #         for s in sources:
-    #             if s.ndi_name == ARANAN_YAYIN_ADI:
-    #                 source = s
-    #                 break
-
-    #     if source is None:
-    #         print("NDI stream not found. Exiting.")
-    #         ndi.find_destroy(ndi_find)
-    #         ndi.destroy()
-    #         return
-
-    #     print(f"NDI stream found: {source.ndi_name}. Connecting...")
-
-    #     ndi_recv_create = ndi.RecvCreateV3()
-    #     ndi_recv_create.color_format = ndi.RECV_COLOR_FORMAT_BGRX_BGRA
-
-    #     ndi_recv = ndi.recv_create_v3(ndi_recv_create)
-    #     if not ndi_recv:
-    #         print("Error: Could not create NDI receiver.")
-    #         ndi.find_destroy(ndi_find)
-    #         ndi.destroy()
-    #         return
-
-    #     ndi.recv_connect(ndi_recv, source)
-    #     ndi.find_destroy(ndi_find)
-    #     print("Successfully connected to NDI stream.")
-
     # --- Add command sender for simulation mode ---
     command_socket = None
     if mode == "simulation":
@@ -159,7 +112,7 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
     lost_counter = 0
     fps_buffer = []
     FPS_BUFFER_SIZE = 30
-
+    
     try:
         while not stop_event.is_set():
             t0 = time.perf_counter()
@@ -174,7 +127,7 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
                     time.sleep(0.01)
                     continue            
             
-            results = model.track(frame, persist=True, verbose=False, tracker=config.TRACKER_CONFIG)
+            results = model.track(frame, persist=True, verbose=False, tracker=config.TRACKER_CONFIG, conf=0.25)
             annotated = frame.copy()
 
             boxes = None
@@ -219,10 +172,25 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
                         if track_ids[i] == tracked_id:
                             target_found = True
                             x1, y1, x2, y2 = boxes[i]
+
+                            # --- ADAPTIVE KALMAN FILTER ---
+                            
+                            # Get the confidence score for this specific detection.
+                            confidence_score = results[0].boxes.conf.cpu().numpy()[i]
+
+                            # (2) Create a temporary, adaptive measurement noise matrix (R).
+                            adaptive_R = kf.R.copy()
+
+                            # (3) Apply the formula from the paper: R_tilde = (1 - c) * R
+                            adaptive_R *= (1.0 - confidence_score)
+                            
+                            # (4) Update the Kalman Filter using the new, adaptive noise matrix.
                             cx = (x1 + x2) // 2
                             cy = (y1 + y2) // 2
-                            kf.update(np.array([cx, cy]))
-
+                            kf.update(z=np.array([cx, cy]), R=adaptive_R)
+                            
+                            # --- ADAPTIVE KALMAN FILTER ---
+                            
                             pixel_w = max(1, x2 - x1)
                             distance_cm = (config.KNOWN_WIDTH_CM * config.FOCAL_LENGTH) / pixel_w
 
@@ -273,12 +241,16 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
                             dist_th = math.sqrt(Xw**2 + Yw**2 + Zw**2)
 
                             # Draw overlay
+                            score_text = f"Score: {confidence_score:.2f}"
+                            text_position = (x1, y2 + 20) 
                             cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                            cv2.putText(annotated, score_text, text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.6,(255, 255, 255), 2)
                             cv2.circle(annotated, (sx, sy), 5, (0, 0, 255), -1)
                             cv2.putText(annotated, f"World XYZ: {Xw:.1f}, {Yw:.1f}, {Zw:.1f} cm",
                                         (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                             cv2.putText(annotated, f"Direct Dist: {z_cam:.1f} cm | Theoretical: {dist_th:.1f} cm",
                                         (10, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                            
                             break
 
                 if target_found:
@@ -325,14 +297,6 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
                     video_capture.release()
             except Exception as e:
                 print(f"Error releasing capture card: {e}")
-
-            # try:
-            #     if ndi_recv is not None:
-            #         print("Closing NDI receiver...")
-            #         ndi.recv_destroy(ndi_recv)
-            #         ndi.destroy()
-            # except Exception as e:
-            #     print(f"Error closing NDI: {e}")
         except Exception:
             pass
         try:
