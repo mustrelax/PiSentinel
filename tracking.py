@@ -47,7 +47,7 @@ def tracking_loop(frame_source: FrameSource, stop_event, mode: str) -> None:
         time.sleep(1)
     
     elif mode == "simulation":
-        CAPTURE_INDEX = 8
+        CAPTURE_INDEX = 9
         print(f"Attempting to open capture card at index {CAPTURE_INDEX}...")
 
         video_capture = cv2.VideoCapture(CAPTURE_INDEX, cv2.CAP_V4L2)

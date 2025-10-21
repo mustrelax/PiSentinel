@@ -5,11 +5,11 @@ TARGET_FPS = 30
 
 # ----- Model & tracking -----
 #MODEL_PATH = "model_ncnn_model320"
-MODEL_PATH = "yolov11n-UAV-finetune_ncnn_model320" 
+MODEL_PATH = "./models/pisentinelv1s_ncnn_model" 
 TRACKER_CONFIG = "bytetrack.yaml"
 FOCAL_LENGTH = 437.5
 KNOWN_WIDTH_CM = 16.0
-DEAD_ZONE_RADIUS = 20
+DEAD_ZONE_RADIUS = 10
 
 # ----- PID -----
 #PID_PAN = dict(Kp=0.06, Ki=0.01, Kd=0.005)
@@ -24,7 +24,7 @@ TILT_START = 90.0
 
 # ----- Web server -----
 HOST = "0.0.0.0"
-PORT = 8080
+PORT = 8081
 
 # ----- Bitrate (kbps) -----
 START_KBPS = 2500
@@ -46,5 +46,5 @@ SIM_VIDEO_PORT = 9998
 
 # ----- ZOOM SETTINGS -----
 ENABLE_ZOOM = True
-ZOOM_START_DISTANCE_CM = 200.0  # Start zooming when the target is farther than this distance
-MAX_ZOOM_LEVEL = 3.0            # Maximum zoom level (e.g., 3x)
+ZOOM_START_DISTANCE_CM = 200.0
+MAX_ZOOM_LEVEL = 3.0 
