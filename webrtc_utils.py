@@ -1,3 +1,4 @@
+# webrtc_utils.py
 from typing import Optional
 from fractions import Fraction
 import threading
@@ -5,6 +6,7 @@ import asyncio
 import numpy as np
 import av
 from aiortc import VideoStreamTrack
+import config
 
 class FrameSource:
 
@@ -37,7 +39,8 @@ class WebRTCVideoTrack(VideoStreamTrack):
 
         frame = self.frame_source.get()
         if frame is None:
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            # Send a black frame if nothing is available yet
+            frame = np.zeros((config.FRAME_HEIGHT, config.FRAME_WIDTH, 3), dtype=np.uint8)
 
         video_frame = av.VideoFrame.from_ndarray(frame, format="bgr24")
         self._ts += 1
