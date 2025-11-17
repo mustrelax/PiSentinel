@@ -62,7 +62,7 @@ class RealCameraInput(BaseInputSource):
 
 class SimulationInput(BaseInputSource):
     def __init__(self):
-        CAPTURE_INDEX = 1
+        CAPTURE_INDEX = 8
         print(f"Attempting to open capture card at index {CAPTURE_INDEX}...")
         self.video_capture = cv2.VideoCapture(CAPTURE_INDEX, cv2.CAP_V4L2)
         
