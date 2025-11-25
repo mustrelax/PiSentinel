@@ -1,6 +1,9 @@
 """
-HungarianMatcher: Optimal assignment between tracks and detections using
-Hungarian algorithm with hybrid IoU + distance cost.
+HungarianMatcher v2: Optimal assignment with swarm-aware weighting.
+Key changes:
+1. Stricter IoU threshold
+2. Size consistency penalty
+3. Velocity prediction for better matching
 """
 import math
 import numpy as np
@@ -12,10 +15,10 @@ import config
 class HungarianMatcher:
     """
     Performs optimal data association using Hungarian algorithm.
-    Cost matrix combines IoU and Euclidean distance with motion-aware weighting.
+    Enhanced for swarm tracking stability.
     """
     
-    def __init__(self, max_iou_distance=0.85):
+    def __init__(self, max_iou_distance=0.7):  # Stricter than 0.85
         self.max_iou_distance = max_iou_distance
     
     @staticmethod
@@ -44,10 +47,31 @@ class HungarianMatcher:
         diagonal = math.sqrt(config.FRAME_WIDTH**2 + config.FRAME_HEIGHT**2)
         return dist / diagonal
     
+    @staticmethod
+    def size_similarity(box1, box2):
+        """
+        Calculate size similarity between boxes.
+        Returns 0 for identical sizes, 1 for very different.
+        """
+        w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
+        w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
+        
+        area1 = w1 * h1
+        area2 = w2 * h2
+        
+        if area1 <= 0 or area2 <= 0:
+            return 1.0
+        
+        # Ratio of areas (1.0 = same, 2.0 = one is 2x bigger)
+        ratio = max(area1, area2) / min(area1, area2)
+        
+        # Convert to cost (0 = same, 1 = very different)
+        return min((ratio - 1.0) / 2.0, 1.0)
+    
     def compute_cost_matrix(self, tracks, detections):
         """
         Compute hybrid cost matrix with motion-aware weighting.
-        Fast-moving tracks rely more on position than IoU.
+        Enhanced with size consistency for swarm stability.
         """
         num_tracks = len(tracks)
         num_dets = len(detections)
@@ -60,25 +84,68 @@ class HungarianMatcher:
         for i, track in enumerate(tracks):
             pred_box = track.get_predicted_box()
             
-            # Adaptive weighting based on motion
+            # Get track velocity for prediction
+            vx, vy = track.kf.x[2], track.kf.x[3]
+            speed = math.sqrt(vx**2 + vy**2)
+            
+            # Adaptive weighting based on motion and track age
             if track.is_fast_moving():
+                iou_weight = 0.3
+                dist_weight = 0.5
+                size_weight = 0.2
+            elif track.age < 5:
+                # New tracks: trust position more
                 iou_weight = 0.4
-                dist_weight = 0.6
+                dist_weight = 0.4
+                size_weight = 0.2
             else:
-                iou_weight = 0.7
+                # Established tracks: balanced
+                iou_weight = 0.5
                 dist_weight = 0.3
+                size_weight = 0.2
             
             for j, det_box in enumerate(detections):
+                # 1. IoU cost
                 iou_cost = 1.0 - self.iou(pred_box, det_box)
+                
+                # 2. Distance cost
                 dist_cost = self.euclidean_distance(pred_box, det_box)
                 
-                cost_matrix[i, j] = iou_weight * iou_cost + dist_weight * dist_cost
+                # 3. Size consistency cost (NEW)
+                size_cost = self.size_similarity(pred_box, det_box)
+                
+                # Combined cost
+                base_cost = (iou_weight * iou_cost + 
+                            dist_weight * dist_cost + 
+                            size_weight * size_cost)
+                
+                # VELOCITY PREDICTION BONUS
+                # If detection is in predicted direction, lower cost
+                if speed > 2.0:
+                    det_cx = (det_box[0] + det_box[2]) / 2
+                    det_cy = (det_box[1] + det_box[3]) / 2
+                    pred_cx = (pred_box[0] + pred_box[2]) / 2
+                    pred_cy = (pred_box[1] + pred_box[3]) / 2
+                    
+                    # Vector from predicted to detection
+                    dx = det_cx - pred_cx
+                    dy = det_cy - pred_cy
+                    
+                    # Dot product with velocity (normalized)
+                    if speed > 0:
+                        dot = (dx * vx + dy * vy) / (speed * max(math.sqrt(dx**2 + dy**2), 1))
+                        
+                        # If detection is in velocity direction, reduce cost
+                        if dot > 0.5:
+                            base_cost *= 0.9  # 10% bonus
+                
+                cost_matrix[i, j] = base_cost
         
         return cost_matrix
     
     def match(self, tracks, detections):
         """
-        Perform Hungarian matching.
+        Perform Hungarian matching with stricter thresholds.
         
         Returns:
             matches: List of (track_idx, detection_idx)
@@ -98,12 +165,25 @@ class HungarianMatcher:
         unmatched_detections = list(range(len(detections)))
         
         for t_idx, d_idx in zip(track_indices, det_indices):
-            if cost_matrix[t_idx, d_idx] < self.max_iou_distance:
+            # Apply adaptive threshold based on track state
+            track = tracks[t_idx]
+            
+            # LOST tracks get more lenient matching (they need to re-acquire)
+            if track.state == track.LOST:
+                threshold = self.max_iou_distance * 1.2  # 20% more lenient
+            elif track.state == track.CONFIRMED and track.age > 10:
+                # Established tracks get stricter matching
+                threshold = self.max_iou_distance * 0.9
+            else:
+                threshold = self.max_iou_distance
+            
+            if cost_matrix[t_idx, d_idx] < threshold:
                 matches.append((t_idx, d_idx))
                 unmatched_detections.remove(d_idx)
             else:
                 unmatched_tracks.append(t_idx)
         
+        # Add remaining unmatched tracks
         all_track_indices = set(range(len(tracks)))
         matched_track_indices = set([m[0] for m in matches])
         unmatched_tracks.extend(list(all_track_indices - matched_track_indices))

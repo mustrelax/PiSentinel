@@ -1,5 +1,5 @@
 """
-Tracking module: Multi-object tracking with threat prioritization.
+Tracking module: Multi-object tracking with swarm-aware threat prioritization.
 
 Public API:
     - TrackingController: Main interface for tracking system
@@ -9,12 +9,12 @@ from tracking.controller import TrackingController
 from tracking.track import Track
 from tracking.multi_tracker import MultiObjectTracker
 from tracking.matcher import HungarianMatcher
-from tracking.threat_analyzer import ThreatAnalyzer
+from tracking.threat_analyzer import SwarmAwareThreatAnalyzer
 
 __all__ = [
     'TrackingController',
     'Track',
     'MultiObjectTracker',
     'HungarianMatcher',
-    'ThreatAnalyzer',
+    'SwarmAwareThreatAnalyzer',
 ]
