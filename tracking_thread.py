@@ -10,7 +10,7 @@ from io_devices import BaseInputSource, ServoController, SimulationCommander
 
 class TrackingThread(threading.Thread):
     
-    FPS_BUFFER_SIZE = 30
+    FPS_BUFFER_SIZE = 60
 
     def __init__(self, 
                  frame_source: FrameSource,
@@ -50,9 +50,9 @@ class TrackingThread(threading.Thread):
     def run(self):
         """Main loop: Read -> Process -> Control -> Publish"""
         print("Tracking thread started.")
+        self.last_loop_time = time.perf_counter()
         try:
             while not self.stop_event.is_set():
-                t0 = time.perf_counter()
 
                 # 1. Read from input device
                 ret, frame = self.input_device.read()
@@ -60,7 +60,18 @@ class TrackingThread(threading.Thread):
                     time.sleep(0.01) # Avoid busy-looping if read fails
                     continue
                 
-                # 2. Process frame with tracker
+                # Calculate True FPS (Cycle Time)
+                t_now = time.perf_counter()
+                dt = t_now - self.last_loop_time
+                self.last_loop_time = t_now
+                
+                current_fps = 1.0 / max(1e-6, dt)
+                self.fps_buffer.append(current_fps)
+                if len(self.fps_buffer) > self.FPS_BUFFER_SIZE:
+                    self.fps_buffer.pop(0)
+                avg_fps = sum(self.fps_buffer) / len(self.fps_buffer)
+
+                # 2. Process frame with tracker (Pass FPS)
                 annotated_frame, pan, tilt = self.tracker.process_frame(frame)
 
                 # 3. Control outputs
@@ -68,8 +79,8 @@ class TrackingThread(threading.Thread):
                 if self.sim_commander:
                     self.sim_commander.send_command(pan, tilt)
 
-                # 4. Add time-based overlays
-                annotated_frame = self._add_timing_overlays(annotated_frame, t0)
+                # 4. (Overlays are now handled inside process_frame/HUD)
+
                 
                 # 5. Publish frame to web server
                 self.frame_source.set(annotated_frame)

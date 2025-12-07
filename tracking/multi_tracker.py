@@ -170,7 +170,7 @@ class MultiObjectTracker:
             # Filter by size (too small = noise, too big = merged detection)
             w, h = x2 - x1, y2 - y1
             
-            if w < 15 or h < 15:  # Too small
+            if w < config.MIN_TRACK_SIZE or h < config.MIN_TRACK_SIZE:  # Too small
                 continue
             if w > 300 or h > 300:  # Too big (probably merged)
                 continue
@@ -211,7 +211,7 @@ class MultiObjectTracker:
         
         # STEP 3: Update matched tracks
         for track_idx, det_idx in matches:
-            self.tracks[track_idx].update(detections[det_idx], confidences[det_idx])
+            self.tracks[track_idx].update(detections[det_idx], confidences[det_idx], self.frame_count)
         
         # STEP 4: Mark missed tracks
         for track_idx in unmatched_tracks:

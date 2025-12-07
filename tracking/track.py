@@ -36,15 +36,15 @@ class Track:
     
     # DELETION PARAMETERS (FROM WORKING 16-17/11 SYSTEM)
     # Key insight: LOST tracks should survive on Kalman prediction!
-    TENTATIVE_MAX_AGE = 15       # Unconfirmed: 0.5 sec
+    TENTATIVE_MAX_AGE = 3        # Unconfirmed: 0.1 sec (Strict noise cleanup)
     LOST_MAX_AGE_SLOW = 60       # Slow tracks: 2 sec before delete
     LOST_MAX_AGE_FAST = 90       # Fast tracks: 3 sec (they WILL return!)
     LOST_THRESHOLD_SLOW = 10     # Mark as lost after 10 frames
     LOST_THRESHOLD_FAST = 20     # Fast objects: 20 frames (more tolerance)
     
     # CONFIRMATION PARAMETERS
-    MIN_HITS_TO_CONFIRM = 3      # Need 3 hits (prevents false positives)
-    MIN_HITS_FAST = 2            # Fast objects confirm with 2
+    MIN_HITS_TO_CONFIRM = 4      # Need 4 hits (Fast but stable)
+    MIN_HITS_FAST = 3            # Fast objects confirm with 3
     
     def __init__(self, track_id, initial_detection, initial_conf):
         self.track_id = track_id
@@ -53,6 +53,7 @@ class Track:
         self.hits = 1
         self.time_since_update = 0
         self.consecutive_misses = 0  # NEW: track consecutive misses
+        self.last_update_frame = 0   # NEW: for adaptive inference frame skipping
         
         # Kalman Filter
         self.kf = KalmanFilter(dim_x=4, dim_z=2)
@@ -141,6 +142,12 @@ class Track:
             self.kf.x[2] *= damping
             self.kf.x[3] *= damping
         
+        # SAFETY: If track is young (<10 hits) and we are predicting (missing measurements),
+        # kill velocity to prevent "shooting off" into space based on noise.
+        if self.hits < 10 and self.time_since_update > 0:
+            self.kf.x[2] *= 0.1
+            self.kf.x[3] *= 0.1
+        
         # Adaptive Q based on motion
         if self.is_aggressive_motion():
             self.kf.Q = self.base_Q * 3.0
@@ -160,7 +167,7 @@ class Track:
         self.age += 1
         self.time_since_update += 1
     
-    def update(self, detection, confidence):
+    def update(self, detection, confidence, frame_count=0):
         """Update with new detection"""
         x1, y1, x2, y2 = detection
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -189,6 +196,7 @@ class Track:
         self.hits += 1
         self.time_since_update = 0
         self.consecutive_misses = 0  # Reset miss counter
+        self.last_update_frame = frame_count # Update frame count
         
         # Update trajectory
         sx, sy = self.kf.x[0], self.kf.x[1]

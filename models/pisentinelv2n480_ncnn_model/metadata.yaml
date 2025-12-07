@@ -1,0 +1,18 @@
+description: Ultralytics YOLO11n model trained on /content/uav-detection-2/data.yaml
+author: Ultralytics
+date: '2025-11-30T14:06:46.471612'
+version: 8.3.191
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 480
+- 480
+names:
+  0: drone
+args:
+  batch: 1
+  half: false
+channels: 3

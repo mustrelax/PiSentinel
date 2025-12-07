@@ -5,12 +5,15 @@ Key changes:
 2. Ignore other drones for servo control
 3. Visual tracking of all drones but servo follows only locked target
 4. More stable servo control
+5. CLAHE + Sharpen preprocessing for better detection
 """
 import math
 import cv2
 import numpy as np
-from ultralytics import YOLO
 from simple_pid import PID
+from datetime import datetime
+import time
+from ultralytics import YOLO
 
 import config
 from tracking.multi_tracker import MultiObjectTracker
@@ -23,6 +26,15 @@ class TrackingController:
     Locks onto one drone and ignores others for servo control.
     """
     
+    # PREPROCESSING PARAMETERS
+    ENABLE_PREPROCESSING = False # Preprocessing state
+    SHOW_PREPROCESSED = False
+    CLAHE_CLIP_LIMIT = config.CLAHE_CLIP_LIMIT
+    CLAHE_TILE_SIZE = (8, 8)      # Grid size for local contrast
+    SHARPEN_STRENGTH = 0.5       # Sharpening amount (0.5-1.5)
+    SHARPEN_SIGMA = 1.0           # Gaussian blur sigma
+    GAMMA = config.GAMMA_CORRECTION
+    
     def __init__(self):
         # Load YOLO model
         try:
@@ -34,6 +46,14 @@ class TrackingController:
         
         # Multi-object tracker
         self.mot = MultiObjectTracker()
+        
+        # CLAHE object (create once, reuse)
+        self.clahe = cv2.createCLAHE(
+            clipLimit=self.CLAHE_CLIP_LIMIT, 
+            tileGridSize=self.CLAHE_TILE_SIZE
+        )
+        print(f"[PREPROCESS] CLAHE enabled: clip={self.CLAHE_CLIP_LIMIT}, tile={self.CLAHE_TILE_SIZE}")
+        print(f"[PREPROCESS] Sharpen enabled: strength={self.SHARPEN_STRENGTH}, sigma={self.SHARPEN_SIGMA}")
         
         # PID controllers - with anti-windup
         self.pid_pan = PID(**config.PID_PAN, setpoint=config.FRAME_WIDTH // 2)
@@ -67,6 +87,77 @@ class TrackingController:
         self.locked = False
         self.lock_start_frame = 0
         self.frame_count = 0
+        
+        # Performance monitoring
+        self.last_inference_ms = 0.0
+        
+        # Sector Scanning State
+        self.sector_index = 0
+        self.scan_counter = 0
+        self.current_sector_name = "WIDE"
+        
+        # Spatial Lock State
+        self.last_locked_pos = None  # (x, y) of last locked target
+
+        # Dynamic threat assessment (NEW - Military-grade)
+        from tracking.threat_analyzer import ReAssessmentTimer, TacticalScenario
+        self.reassess_timer = ReAssessmentTimer()
+        self.current_scenario = TacticalScenario.SINGLE
+        self.lock_age_frames = 0
+
+        # Sentry Mode State
+        self.last_detection_time = time.time()
+        self.sentry_phase = 0.0 # Phase for sine wave scanning
+        self.last_known_pan = config.PAN_START
+        self.last_known_tilt = config.TILT_START
+    
+    def _preprocess_frame(self, frame):
+        """
+        Apply CLAHE + Unsharp Masking for better small object detection.
+        
+        CLAHE: Improves local contrast, makes drone silhouettes more visible
+        Sharpen: Enhances edges, helps YOLO detect distant/small objects
+        
+        Returns: preprocessed frame (same size)
+        """
+        if not self.ENABLE_PREPROCESSING:
+            return frame
+        
+        # ===== STEP 1: CLAHE on L channel (LAB color space) =====
+        # Convert to LAB - L channel is luminance
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l_channel, a_channel, b_channel = cv2.split(lab)
+        
+        # Apply CLAHE to L channel only (preserves colors)
+        l_enhanced = self.clahe.apply(l_channel)
+        
+        # Merge back
+        lab_enhanced = cv2.merge([l_enhanced, a_channel, b_channel])
+        enhanced = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
+        
+        # ===== STEP 2: Unsharp Masking (edge sharpening) =====
+        # Create blurred version
+        blurred = cv2.GaussianBlur(enhanced, (0, 0), self.SHARPEN_SIGMA)
+        
+        # Unsharp mask: original + strength * (original - blurred)
+        sharpened = cv2.addWeighted(
+            enhanced, 1.0 + self.SHARPEN_STRENGTH,
+            blurred, -self.SHARPEN_STRENGTH,
+            0
+        )
+        
+        # Clip to valid range (prevent overflow artifacts)
+        sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)
+        
+        # ===== STEP 3: Gamma Correction (Brighten shadows/details) =====
+        # Build lookup table for gamma
+        inv_gamma = 1.0 / self.GAMMA
+        table = np.array([((i / 255.0) ** inv_gamma) * 255 
+                          for i in np.arange(0, 256)]).astype("uint8")
+        
+        final = cv2.LUT(sharpened, table)
+        
+        return final
     
     def _apply_servo_smoothing(self, pan_corr, tilt_corr, error_radius):
         """Smooth servo corrections - MORE smooth when near target"""
@@ -182,6 +273,80 @@ class TrackingController:
         
         return frame
     
+    def _get_roi_crop(self, frame, target_x, target_y):
+        """
+        Calculate ROI crop coordinates centered on target.
+        Returns: (crop_img, offset_x, offset_y)
+        """
+        h, w = frame.shape[:2]
+        roi_size = config.ROI_SIZE
+        half_size = roi_size // 2
+        
+        # Clamp center to keep ROI within frame
+        cx = np.clip(target_x, half_size, w - half_size)
+        cy = np.clip(target_y, half_size, h - half_size)
+        
+        x1 = int(cx - half_size)
+        y1 = int(cy - half_size)
+        x2 = x1 + roi_size
+        y2 = y1 + roi_size
+        
+        return frame[y1:y2, x1:x2], x1, y1
+
+    def _get_sector_crop(self, frame, sector_idx):
+        """
+        Get crop for specific sector.
+        Sectors: 0=Center, 1=TL, 2=TR, 3=BL, 4=BR
+        Returns: (crop_img, offset_x, offset_y, sector_name)
+        """
+        h, w = frame.shape[:2]
+        roi_size = config.ROI_SIZE
+        
+        # Define sectors (x1, y1)
+        # Center
+        if sector_idx == 0:
+            x1 = (w - roi_size) // 2
+            y1 = (h - roi_size) // 2
+            name = "CENTER"
+        # Top Left
+        elif sector_idx == 1:
+            x1 = 0
+            y1 = 0
+            name = "TOP-L"
+        # Top Right
+        elif sector_idx == 2:
+            x1 = w - roi_size
+            y1 = 0
+            name = "TOP-R"
+        # Bottom Left
+        elif sector_idx == 3:
+            x1 = 0
+            y1 = h - roi_size
+            name = "BOT-L"
+        # Bottom Right
+        else: # 4
+            x1 = w - roi_size
+            y1 = h - roi_size
+            name = "BOT-R"
+            
+        x2 = x1 + roi_size
+        y2 = y1 + roi_size
+        
+        return frame[y1:y2, x1:x2], x1, y1, name
+
+    def _translate_detections_to_global(self, detections, offset_x, offset_y):
+        """Convert ROI-local detections to global coordinates"""
+        global_dets = []
+        for det in detections:
+            x1, y1, x2, y2 = det
+            global_dets.append([
+                x1 + offset_x,
+                y1 + offset_y,
+                x2 + offset_x,
+                y2 + offset_y
+            ])
+        return global_dets
+
     def _draw_dashed_rect(self, frame, pt1, pt2, color, thickness):
         """Draw a dashed rectangle"""
         x1, y1 = pt1
@@ -203,70 +368,133 @@ class TrackingController:
         for y in range(y1, y2, dash_length + gap_length):
             cv2.line(frame, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)
     
-    def _draw_hud(self, frame, active_track, all_tracks):
-        """Draw HUD with lock status"""
-        panel_x = config.FRAME_WIDTH - 220
-        panel_y = 10
-        panel_w = 210
-        panel_h = 120
+    def _draw_hud(self, frame, active_track, all_tracks, roi_active=False, inference_ms=0.0):
+        """
+        Draw a minimal, engineering-grade HUD.
+        """
+        h, w = frame.shape[:2]
+        primary_color = config.HUD_COLOR_PRIMARY
         
-        # Background
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (panel_x, panel_y), 
-                     (panel_x + panel_w, panel_y + panel_h), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        # 1. Top Bar (Status Line)
+        # ---------------------------------------------------------
+        # [PiSentinel] [MODE: AUTO] [INF: 15ms]          [LOCK: ON]
         
-        cv2.rectangle(frame, (panel_x, panel_y), 
-                     (panel_x + panel_w, panel_y + panel_h), (100, 100, 100), 2)
+        bar_height = 40  # Increased height for bigger text
+        # Semi-transparent background for top bar
+        sub_img = frame[0:bar_height, 0:w]
+        rect = np.full(sub_img.shape, (0, 0, 0), dtype=np.uint8)
+        res = cv2.addWeighted(sub_img, 1 - config.HUD_OPACITY, rect, config.HUD_OPACITY, 0)
+        frame[0:bar_height, 0:w] = res
         
-        # Get lock status
-        lock_status = SwarmAwareThreatAnalyzer.get_lock_status(active_track, all_tracks)
+        # System Name (Left)
+        cv2.putText(frame, "PiSentinel", (10, 25), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, primary_color, 1)
         
-        # Title based on state
-        if active_track is None:
-            title = "SEARCHING..."
-            title_color = (100, 100, 100)
-        elif active_track.state == active_track.LOST:
-            title = "PREDICTING"
-            title_color = (0, 165, 255)  # Orange
+        # Status Indicators
+        status_x = 150
+        status_y = 25
+        
+        # ROI Status
+        if roi_active:
+            roi_text = "ROI: LOCK"
+            roi_color = primary_color
+        elif config.ZOOM_SEARCH_ENABLED:
+            roi_text = f"SCAN: {self.current_sector_name}"
+            roi_color = (0, 200, 255) # Orange-ish for scan
         else:
-            title = "PRIMARY LOCK"
-            title_color = (0, 0, 255)  # Red
+            roi_text = "ROI: WIDE"
+            roi_color = (150, 150, 150)
+            
+        cv2.putText(frame, f"[{roi_text}]", (status_x, status_y), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, roi_color, 1)
         
-        cv2.putText(frame, title, (panel_x + 10, panel_y + 25),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, title_color, 2)
-        
-        # Target info
+        # Track Count
         confirmed = len([t for t in all_tracks if t.state == t.CONFIRMED])
-        lost = len([t for t in all_tracks if t.state == t.LOST])
-        cv2.putText(frame, f"Detected: {confirmed} | Lost: {lost}", 
-                   (panel_x + 10, panel_y + 48),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
+        cv2.putText(frame, f"[TRK: {confirmed}]", (status_x + 100, status_y), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, primary_color, 1)
+
+        # Inference Time and Time (Bottom Right - Minimal)
+        time_str = datetime.now().strftime('%H:%M:%S')
+        inf_text = f"[INF: {inference_ms:.1f}ms] [{time_str}]"
         
+        # Calculate position
+        text_size = cv2.getTextSize(inf_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+        text_x = w - text_size[0] - 10
+        text_y = h - 10
+        
+        # Draw background bar for readability
+        cv2.rectangle(frame, (text_x - 5, text_y - 20), (w, h), (0, 0, 0), -1)
+        
+        cv2.putText(frame, inf_text, (text_x, text_y - 5), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, primary_color, 1)
+        
+        # Lock Status (Right aligned)
         if active_track:
-            # Target ID and state
-            state_str = "PRED" if active_track.state == active_track.LOST else "LOCK"
-            cv2.putText(frame, f"Target: #{active_track.track_id} [{state_str}]", 
-                       (panel_x + 10, panel_y + 68),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, title_color, 1)
-            
-            # Time since update (important for LOST)
+            lock_text = f"LOCK: #{active_track.track_id}"
+            lock_color = config.HUD_COLOR_DANGER
             if active_track.state == active_track.LOST:
-                cv2.putText(frame, f"Predicting: {active_track.time_since_update}f", 
-                           (panel_x + 10, panel_y + 88),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+                lock_text = "LOCK: LOST"
+                lock_color = config.HUD_COLOR_WARNING
+        else:
+            lock_text = "LOCK: SEARCH"
+            lock_color = (150, 150, 150)
             
-            # Ignored count
-            if lock_status['ignored_count'] > 0:
-                cv2.putText(frame, f"Ignoring: {lock_status['ignored_count']}", 
-                           (panel_x + 10, panel_y + 105),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 180, 0), 1)
+        text_size = cv2.getTextSize(lock_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+        cv2.putText(frame, lock_text, (w - text_size[0] - 10, 20), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, lock_color, 1)
+        
+        # 2. Crosshair (Center)
+        # ---------------------------------------------------------
+        cx, cy = w // 2, h // 2
+        gap = 10
+        length = 20
+        # Horizontal
+        cv2.line(frame, (cx - gap - length, cy), (cx - gap, cy), primary_color, 1)
+        cv2.line(frame, (cx + gap, cy), (cx + gap + length, cy), primary_color, 1)
+        # Vertical
+        cv2.line(frame, (cx, cy - gap - length), (cx, cy - gap), primary_color, 1)
+        cv2.line(frame, (cx, cy + gap), (cx, cy + gap + length), primary_color, 1)
+        
+        # Center dot
+        if active_track:
+             cv2.circle(frame, (cx, cy), 2, config.HUD_COLOR_DANGER, -1)
+        
+        # 3. Target Data Panel (Bottom Left) - Only if locked
+        # ---------------------------------------------------------
+        if active_track:
+            panel_x = 10
+            panel_y = h - 100
             
-            # Close range warning
-            if lock_status['is_close_range']:
-                cv2.putText(frame, "CLOSE", 
-                           (panel_x + 150, panel_y + 68),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+            # Speed estimation
+            speed = active_track.get_average_speed()
+            
+            # Data lines
+            lines = [
+                f"TGT: #{active_track.track_id}",
+                f"POS: {int(active_track.kf.x[0])}, {int(active_track.kf.x[1])}",
+                f"SPD: {speed:.1f} px/f",
+                f"AGE: {active_track.age} f"
+            ]
+            
+            for i, line in enumerate(lines):
+                cv2.putText(frame, line, (panel_x, panel_y + (i * 15)), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, primary_color, 1)
+        
+        # 4. Corner Brackets (Decorative)
+        # ---------------------------------------------------------
+        corner_len = 30
+        # Top Left
+        cv2.line(frame, (10, 40), (10, 40 + corner_len), primary_color, 1)
+        cv2.line(frame, (10, 40), (10 + corner_len, 40), primary_color, 1)
+        # Top Right
+        cv2.line(frame, (w - 10, 40), (w - 10, 40 + corner_len), primary_color, 1)
+        cv2.line(frame, (w - 10, 40), (w - 10 - corner_len, 40), primary_color, 1)
+        # Bottom Left
+        cv2.line(frame, (10, h - 10), (10, h - 10 - corner_len), primary_color, 1)
+        cv2.line(frame, (10, h - 10), (10 + corner_len, h - 10), primary_color, 1)
+        # Bottom Right
+        cv2.line(frame, (w - 10, h - 10), (w - 10, h - 10 - corner_len), primary_color, 1)
+        cv2.line(frame, (w - 10, h - 10), (w - 10 - corner_len, h - 10), primary_color, 1)
     
     def _control_servo(self, frame, active_track):
         """Servo control - follows ONLY the locked target"""
@@ -281,12 +509,67 @@ class TrackingController:
         cv2.line(frame, (center_x, center_y - 15), (center_x, center_y + 15), (100, 100, 100), 1)
         
         # NO TARGET: Hold position, decay any movement
+        # NO TARGET: Check for Sentry Mode or Hold
+        # NO TARGET: Check for Sentry Mode or Hold
         if active_track is None:
-            self.prev_pan_corr *= 0.5
-            self.prev_tilt_corr *= 0.5
-            self.pid_pan.reset()
-            self.pid_tilt.reset()
+            time_since_lost = time.time() - self.last_detection_time
+            
+            # 1. LOCAL SEARCH (Immediate reaction)
+            if time_since_lost < config.LOCAL_SEARCH_TIMEOUT:
+                # Scan around LAST KNOWN position
+                self.sentry_phase += config.SENTRY_SCAN_SPEED * 3.0 # Faster scan for local search
+                
+                # Calculate target offset (smaller angle)
+                target_offset = config.LOCAL_SCAN_ANGLE * math.sin(self.sentry_phase)
+                
+                target_pan = self.last_known_pan + target_offset
+                
+                # Move servo
+                diff = target_pan - self.pan_angle
+                self.pan_angle += diff * 0.1
+                
+                # Keep tilt steady at last known
+                tilt_diff = self.last_known_tilt - self.tilt_angle
+                self.tilt_angle += tilt_diff * 0.1
+                
+                cv2.putText(frame, "MODE: LOCAL SEARCH", (10, 80), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            
+            # 2. GLOBAL SENTRY (After timeout)
+            elif config.SENTRY_MODE_ENABLED and time_since_lost > config.IDLE_TIMEOUT:
+                # Global Scan around CENTER
+                self.sentry_phase += config.SENTRY_SCAN_SPEED
+                
+                # Calculate target offset
+                target_offset = config.SENTRY_SCAN_ANGLE * math.sin(self.sentry_phase)
+                
+                # Apply to pan angle (relative to START)
+                target_pan = config.PAN_START + target_offset
+                
+                # Smoothly move towards target pan
+                diff = target_pan - self.pan_angle
+                self.pan_angle += diff * 0.05 # Slower for global
+                
+                # Reset tilt to center
+                tilt_diff = config.TILT_START - self.tilt_angle
+                self.tilt_angle += tilt_diff * 0.05
+                
+                cv2.putText(frame, "MODE: GLOBAL SENTRY", (10, 80), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            
+            else:
+                # IDLE / TRANSITION
+                # Just hold position and decay
+                self.prev_pan_corr *= 0.5
+                self.prev_tilt_corr *= 0.5
+                self.pid_pan.reset()
+                self.pid_tilt.reset()
+                
             return frame
+        
+        # Update last known position when we have a target
+        self.last_known_pan = self.pan_angle
+        self.last_known_tilt = self.tilt_angle
         
         # Get target position (from Kalman state)
         raw_x, raw_y = active_track.kf.x[0], active_track.kf.x[1]
@@ -304,10 +587,15 @@ class TrackingController:
         if active_track.state == active_track.LOST:
             avg_speed = active_track.get_average_speed()
             
-            if avg_speed < 5.0:
-                # STATIONARY LOST: Don't move at all, wait for re-detection
-                effective_dead_zone = 9999  # Infinite dead zone = no movement
+            # SAFETY CHECK: If track is very young (low hits) and lost, DO NOT FOLLOW PREDICTION
+            # This prevents the camera from swinging wildly if a false/noisy detection is locked and immediately lost.
+            if active_track.hits < 10:
+                effective_dead_zone = 9999
                 speed_factor = 0.0
+            elif avg_speed < 5.0:
+                # STATIONARY LOST: Allow very slow micro-corrections to keep prediction in frame
+                effective_dead_zone = dead_zone * 2
+                speed_factor = 0.1 # Was 0.0 (stopped), now 0.1 (drift correction)
             else:
                 # MOVING LOST: Slow follow on prediction
                 effective_dead_zone = dead_zone * 2
@@ -316,20 +604,24 @@ class TrackingController:
             effective_dead_zone = dead_zone
             speed_factor = 1.0
         
+        # CONTINUOUS TRACKING LOGIC
+        # We removed the "hard stop" inside dead zone to prevent "stepping".
+        # Instead, we let the PID controller handle small errors naturally.
+        
         if radius < effective_dead_zone:
-            # Inside dead zone - FULL STOP with decay
-            pan_corr, tilt_corr = 0.0, 0.0
-            
-            # Decay previous corrections (prevents oscillation)
-            self.prev_pan_corr *= 0.5
-            self.prev_tilt_corr *= 0.5
-            
-            # Reset PID after stabilizing
-            if abs(self.prev_pan_corr) < 0.01 and abs(self.prev_tilt_corr) < 0.01:
+            # Inside dead zone: Reduce PID gain effectively by scaling error?
+            # Or just let it be. With small dead zone (2px), it's fine.
+            # We just suppress very tiny jitters.
+            if radius < 1.0:
+                pan_corr, tilt_corr = 0.0, 0.0
                 self.pid_pan.reset()
                 self.pid_tilt.reset()
+            else:
+                # Soft dampening inside effective zone
+                pan_corr = self.pid_pan(sx) * speed_factor * 0.5
+                tilt_corr = self.pid_tilt(sy) * speed_factor * 0.5
         else:
-            # PID control (reduced speed for LOST targets)
+            # Normal PID control
             pan_corr = self.pid_pan(sx) * speed_factor
             tilt_corr = self.pid_tilt(sy) * speed_factor
         
@@ -366,61 +658,206 @@ class TrackingController:
         
         return frame
     
+    def toggle_preprocessing(self):
+        """Toggle preprocessing on/off for A/B testing"""
+        self.ENABLE_PREPROCESSING = not self.ENABLE_PREPROCESSING
+        status = "ON" if self.ENABLE_PREPROCESSING else "OFF"
+        print(f"[PREPROCESS] Preprocessing toggled: {status}")
+        return self.ENABLE_PREPROCESSING
+    
+    def toggle_show_preprocessed(self):
+        """Toggle between showing original vs preprocessed frame"""
+        self.SHOW_PREPROCESSED = not self.SHOW_PREPROCESSED
+        status = "PREPROCESSED" if self.SHOW_PREPROCESSED else "ORIGINAL"
+        print(f"[VIEW] Now showing: {status}")
+        return self.SHOW_PREPROCESSED
+    
+    def set_preprocessing_params(self, clip_limit=None, sharpen_strength=None):
+        """Adjust preprocessing parameters at runtime"""
+        if clip_limit is not None:
+            self.CLAHE_CLIP_LIMIT = clip_limit
+            self.clahe = cv2.createCLAHE(
+                clipLimit=self.CLAHE_CLIP_LIMIT,
+                tileGridSize=self.CLAHE_TILE_SIZE
+            )
+            print(f"[PREPROCESS] CLAHE clip limit: {clip_limit}")
+        
+        if sharpen_strength is not None:
+            self.SHARPEN_STRENGTH = sharpen_strength
+            print(f"[PREPROCESS] Sharpen strength: {sharpen_strength}")
+    
     def process_frame(self, frame: np.ndarray):
         """
-        Main processing loop.
-        Simple: detect → track → lock → follow
+        Main processing loop with ROI Tracking and Adaptive Inference.
         """
         self.frame_count += 1
         
-        # YOLO detection (very low confidence for stationary objects)
-        results = self.model(frame, verbose=False, conf=0.15)
-        annotated = frame.copy()
+        # Get current active track ID from MOT
+        active_id = self.mot.active_track_id
+        active_track = None
+        if active_id is not None:
+            # Find the track object
+            for t in self.mot.tracks:
+                if t.track_id == active_id:
+                    active_track = t
+                    break
+        
+        # ===== ADAPTIVE INFERENCE (Frame Skipping) =====
+        # Skip detection if we have a stable lock and just detected recently
+        should_detect = True
+        if config.ADAPTIVE_INFERENCE and active_track and active_track.state == active_track.CONFIRMED:
+            frames_since_last = self.frame_count - active_track.last_update_frame
+            if frames_since_last < config.ADAPTIVE_SKIP_FRAMES:
+                should_detect = False
         
         detections = []
         confidences = []
-        raw_det_count = 0  # DEBUG
+        roi_active = False
+        roi_offset_x = 0
+        roi_offset_y = 0
         
-        if results and len(results[0].boxes) > 0:
-            boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
-            confs = results[0].boxes.conf.cpu().numpy()
+        if should_detect:
+            # ===== ROI / CROP LOGIC =====
+            # If we have a target (even if lost/predicting), crop around it
+            inference_frame = frame
             
-            raw_det_count = len(boxes)  # DEBUG
-            detections = [box.tolist() for box in boxes]
-            confidences = confs.tolist()
+            if config.ROI_ENABLED and active_track:
+                # Use predicted position for crop center
+                pred_x, pred_y = active_track.kf.x[0], active_track.kf.x[1]
+                
+                # Check if prediction is within frame (don't crop if totally lost)
+                h, w = frame.shape[:2]
+                if 0 <= pred_x <= w and 0 <= pred_y <= h:
+                    inference_frame, roi_offset_x, roi_offset_y = self._get_roi_crop(frame, pred_x, pred_y)
+                    roi_active = True
+                    self.current_sector_name = "LOCK"
+            
+            # ===== SECTOR SCANNING (If not locked) =====
+            elif config.ZOOM_SEARCH_ENABLED and not active_track:
+                # SMART ZOOM: Only zoom if we are in GLOBAL SENTRY mode (or idle long enough)
+                # Don't zoom during Local Search to avoid disorientation
+                time_since_lost = time.time() - self.last_detection_time
+                is_global_search = time_since_lost > config.IDLE_TIMEOUT
+                
+                if is_global_search:
+                    self.scan_counter += 1
+                    
+                    # Interleaved: Even frames = Wide, Odd frames = Sector Zoom
+                    if self.scan_counter % 2 != 0:
+                        # Zoom Scan Mode
+                        inference_frame, roi_offset_x, roi_offset_y, s_name = self._get_sector_crop(frame, self.sector_index)
+                        roi_active = True
+                        self.current_sector_name = s_name
+                        
+                        # Move to next sector for next time
+                        self.sector_index = (self.sector_index + 1) % 5
+                    else:
+                        # Wide Mode
+                        self.current_sector_name = "WIDE"
+                        # roi_active remains False
+                else:
+                    # Local search or just lost - stay wide
+                    self.current_sector_name = "WIDE"
+            
+            # ===== PREPROCESSING =====
+            processed_frame = self._preprocess_frame(inference_frame)
+            
+            # ===== YOLO DETECTION =====
+            # DYNAMIC THRESHOLD:
+            # If ROI is active (Locked), use VERY LOW threshold (trust the tracker/ROI)
+            # If Searching, use normal threshold to avoid noise
+            if roi_active:
+                conf_thresh = config.LOCK_CONF_THRESHOLD
+            else:
+                conf_thresh = config.SEARCH_CONF_THRESHOLD
+            
+            t_inf_start = cv2.getTickCount()
+            results = self.model(processed_frame, verbose=False, conf=conf_thresh)
+            t_inf_end = cv2.getTickCount()
+            self.last_inference_ms = (t_inf_end - t_inf_start) * 1000.0 / cv2.getTickFrequency()
+            
+            if results and len(results[0].boxes) > 0:
+                boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
+                confs = results[0].boxes.conf.cpu().numpy()
+                
+                raw_dets = [box.tolist() for box in boxes]
+                raw_confs = confs.tolist()
+                
+                # Translate back to global coordinates if ROI was active
+                if roi_active:
+                    detections = self._translate_detections_to_global(raw_dets, roi_offset_x, roi_offset_y)
+                else:
+                    detections = raw_dets
+                
+                confidences = raw_confs
         
-        # DEBUG: Show raw YOLO count
-        cv2.putText(annotated, f"YOLO:{raw_det_count}", (10, 25),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-        
-        # Update MOT
+        # Update MOT (even if no detections, to run predictions)
         self.mot.update(detections, confidences)
+        
+        # Update last detection time if we have any confirmed tracks
+        if self.mot.get_confirmed_tracks():
+            self.last_detection_time = time.time()
         
         # Get all tracks
         all_tracks = self.mot.get_all_tracks()
-        
-        # Target selection (PRIMARY LOCK)
-        active_track, switched = SwarmAwareThreatAnalyzer.select_active_target(
-            all_tracks, 
-            self.mot.active_track_id,
-            self.mot.switch_cooldown_counter
+
+        # Get current active track (if any)
+        current_active_track = None
+        if self.mot.active_track_id is not None:
+            current_active_track = next(
+                (t for t in all_tracks if t.track_id == self.mot.active_track_id),
+                None
+            )
+
+        # === DYNAMIC THREAT ASSESSMENT (MILITARY-GRADE) ===
+        # Detect scenario
+        self.current_scenario = SwarmAwareThreatAnalyzer.detect_scenario(all_tracks)
+
+        # Dynamic re-assessment
+        active_track, switched = SwarmAwareThreatAnalyzer.dynamic_reassessment(
+            current_active_track,
+            all_tracks,
+            self.frame_count,
+            self.reassess_timer,
+            self.current_scenario,
+            self.lock_age_frames
         )
-        
+
         if switched:
             self.mot.active_track_id = active_track.track_id if active_track else None
             self.mot.switch_cooldown_counter = 0
             self.lock_start_frame = self.frame_count
-            
+            self.lock_age_frames = 0
+
             # Reset smoothed position to new target
             if active_track:
                 self.smoothed_target_x = active_track.kf.x[0]
                 self.smoothed_target_y = active_track.kf.x[1]
+                # Update last locked pos immediately
+                self.last_locked_pos = (active_track.kf.x[0], active_track.kf.x[1])
+            else:
+                self.last_locked_pos = None
         else:
             self.mot.switch_cooldown_counter += 1
+            self.lock_age_frames += 1
+            # Update last locked pos if we have a track
+            if active_track:
+                self.last_locked_pos = (active_track.kf.x[0], active_track.kf.x[1])
         
         # Visualize
+        annotated = frame.copy()
+        
+        # Draw ROI box if active (debug/feedback)
+        # Draw ROI box if active (debug/feedback)
+        # if roi_active:
+        #     cv2.rectangle(annotated, 
+        #                  (roi_offset_x, roi_offset_y), 
+        #                  (roi_offset_x + config.ROI_SIZE, roi_offset_y + config.ROI_SIZE),
+        #                  (0, 255, 255), 1)
+        
         annotated = self._visualize_tracks(annotated, all_tracks, active_track)
-        self._draw_hud(annotated, active_track, all_tracks)
+        
+        self._draw_hud(annotated, active_track, all_tracks, roi_active=roi_active, inference_ms=self.last_inference_ms)
         annotated = self._control_servo(annotated, active_track)
         
         return annotated, self.pan_angle, self.tilt_angle
