@@ -1,10 +1,3 @@
-"""
-HungarianMatcher v2: Optimal assignment with swarm-aware weighting.
-Key changes:
-1. Stricter IoU threshold
-2. Size consistency penalty
-3. Velocity prediction for better matching
-"""
 import math
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -13,17 +6,15 @@ import config
 
 
 class HungarianMatcher:
-    """
-    Performs optimal data association using Hungarian algorithm.
-    Enhanced for swarm tracking stability.
-    """
+    # Optimal data association using Hungarian algorithm.
+    # Enhanced for stability.
     
     def __init__(self, max_iou_distance=0.7):  # Stricter than 0.85
         self.max_iou_distance = max_iou_distance
     
     @staticmethod
     def iou(box1, box2):
-        """Calculate Intersection over Union"""
+        #Calculate Intersection over Union
         x1, y1, x2, y2 = box1
         x1_, y1_, x2_, y2_ = box2
         
@@ -39,7 +30,7 @@ class HungarianMatcher:
     
     @staticmethod
     def euclidean_distance(box1, box2):
-        """Calculate normalized Euclidean distance between centers"""
+        #Calculate normalized Euclidean distance between centers
         cx1, cy1 = (box1[0] + box1[2]) / 2, (box1[1] + box1[3]) / 2
         cx2, cy2 = (box2[0] + box2[2]) / 2, (box2[1] + box2[3]) / 2
         
@@ -49,10 +40,7 @@ class HungarianMatcher:
     
     @staticmethod
     def size_similarity(box1, box2):
-        """
-        Calculate size similarity between boxes.
-        Returns 0 for identical sizes, 1 for very different.
-        """
+        #Calculate size similarity. 0=same, 1=different.
         w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
         w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
         
@@ -69,10 +57,7 @@ class HungarianMatcher:
         return min((ratio - 1.0) / 2.0, 1.0)
     
     def compute_cost_matrix(self, tracks, detections):
-        """
-        Compute hybrid cost matrix with motion-aware weighting.
-        Enhanced with size consistency for swarm stability.
-        """
+        # Hybrid cost matrix with motion-aware weighting.
         num_tracks = len(tracks)
         num_dets = len(detections)
         
@@ -90,6 +75,7 @@ class HungarianMatcher:
             
             # Adaptive weighting based on motion and track age
             if track.is_fast_moving():
+                # bunu sonra düzelt
                 iou_weight = 0.3
                 dist_weight = 0.5
                 size_weight = 0.2
@@ -144,14 +130,7 @@ class HungarianMatcher:
         return cost_matrix
     
     def match(self, tracks, detections):
-        """
-        Perform Hungarian matching with stricter thresholds.
-        
-        Returns:
-            matches: List of (track_idx, detection_idx)
-            unmatched_tracks: List of track indices
-            unmatched_detections: List of detection indices
-        """
+        # Perform Hungarian matching with stricter thresholds.
         if len(tracks) == 0:
             return [], [], list(range(len(detections)))
         if len(detections) == 0:

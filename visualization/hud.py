@@ -1,115 +1,199 @@
-"""
-HUD (Heads-Up Display): Status panel, threat bars, and system information.
-"""
+# HUD (Heads-Up Display) module
+# HUD (Heads-Up Display) module
+# Handles visualizations.
+
 import cv2
+import numpy as np
+from datetime import datetime
 import config
-from tracking.track import Track
 
+def draw_hud(frame, active_track, all_tracks, roi_active=False, inference_ms=0.0, current_sector_name="WIDE"):
+    # Draw minimal HUD.
+    h, w = frame.shape[:2]
+    primary_color = config.HUD_COLOR_PRIMARY
+    
+    # 1. Top Bar (Status Line)
+    # [PiSentinel] [MODE: AUTO] [INF: 15ms] [LOCK: ON]
+    
+    bar_height = 40
+    # Semi-transparent background for top bar
+    sub_img = frame[0:bar_height, 0:w]
+    rect = np.full(sub_img.shape, (0, 0, 0), dtype=np.uint8)
+    res = cv2.addWeighted(sub_img, 1 - config.HUD_OPACITY, rect, config.HUD_OPACITY, 0)
+    frame[0:bar_height, 0:w] = res
+    
+    # System Name (Left)
+    cv2.putText(frame, "PiSentinel", (10, 25), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, primary_color, 1)
+    
+    # Status Indicators
+    status_x = 150
+    status_y = 25
+    
+    # ROI Status
+    if roi_active:
+        roi_text = "ROI: LOCK"
+        roi_color = primary_color
+    elif config.ZOOM_SEARCH_ENABLED:
+        roi_text = f"SCAN: {current_sector_name}"
+        roi_color = (0, 200, 255) # Orange-ish for scan
+    else:
+        roi_text = "ROI: WIDE"
+        roi_color = (150, 150, 150)
+        
+    cv2.putText(frame, f"[{roi_text}]", (status_x, status_y), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.4, roi_color, 1)
+    
+    # Track Count
+    confirmed_tracks = [t for t in all_tracks if t.state == t.CONFIRMED]
+    confirmed_count = len(confirmed_tracks)
+    cv2.putText(frame, f"[TRK: {confirmed_count}]", (status_x + 100, status_y), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.4, primary_color, 1)
 
-def draw_status_panel(frame, active_track, all_tracks):
-    """Draw professional HUD status panel in top-left corner"""
-    # Panel dimensions
-    panel_h = 140
-    panel_w = 380
-    panel_x = 10
-    panel_y = 10
+    # Inference Time and Time (Bottom Right - Minimal)
+    time_str = datetime.now().strftime('%H:%M:%S')
+    inf_text = f"[INF: {inference_ms:.1f}ms] [{time_str}]"
     
-    # Semi-transparent background
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (panel_x, panel_y), 
-                 (panel_x + panel_w, panel_y + panel_h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+    # Calculate position
+    text_size = cv2.getTextSize(inf_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+    text_x = w - text_size[0] - 10
+    text_y = h - 10
     
-    # Border
-    cv2.rectangle(frame, (panel_x, panel_y), 
-                 (panel_x + panel_w, panel_y + panel_h), (100, 100, 100), 2)
+    # Draw background bar for readability
+    # burası kalsın
+    cv2.rectangle(frame, (text_x - 5, text_y - 20), (w, h), (0, 0, 0), -1)
     
-    # Header
-    cv2.putText(frame, "SYSTEM STATUS", (panel_x + 10, panel_y + 25),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    cv2.line(frame, (panel_x + 10, panel_y + 32), 
-            (panel_x + panel_w - 10, panel_y + 32), (100, 100, 100), 1)
+    cv2.putText(frame, inf_text, (text_x, text_y - 5), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, primary_color, 1)
     
-    # Track statistics
-    confirmed = len([t for t in all_tracks if t.state == Track.CONFIRMED])
-    fast = len([t for t in all_tracks if t.state == Track.CONFIRMED and t.is_fast_moving()])
-    lost = len([t for t in all_tracks if t.state == Track.LOST])
-    
-    cv2.putText(frame, f"Active Tracks: {confirmed}  Fast: {fast}  Lost: {lost}", 
-               (panel_x + 10, panel_y + 55), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-    
+    # Lock Status (Right aligned)
     if active_track:
-        _draw_target_info(frame, active_track, panel_x, panel_y)
+        lock_text = f"LOCK: #{active_track.track_id}"
+        lock_color = config.HUD_COLOR_DANGER
+        if active_track.state == active_track.LOST:
+            lock_text = "LOCK: LOST"
+            lock_color = config.HUD_COLOR_WARNING
     else:
-        cv2.putText(frame, "No Active Target", (panel_x + 10, panel_y + 95),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 100), 1)
+        lock_text = "LOCK: SEARCH"
+        lock_color = (150, 150, 150)
+        
+    text_size = cv2.getTextSize(lock_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+    cv2.putText(frame, lock_text, (w - text_size[0] - 10, 20), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, lock_color, 1)
+    
+    # 2. Crosshair (Center)
+    # ---------------------------------------------------------
+    cx, cy = w // 2, h // 2
+    gap = 10
+    length = 20
+    # Horizontal
+    cv2.line(frame, (cx - gap - length, cy), (cx - gap, cy), primary_color, 1)
+    cv2.line(frame, (cx + gap, cy), (cx + gap + length, cy), primary_color, 1)
+    # Vertical
+    cv2.line(frame, (cx, cy - gap - length), (cx, cy - gap), primary_color, 1)
+    cv2.line(frame, (cx, cy + gap), (cx, cy + gap + length), primary_color, 1)
+    
+    # Center dot
+    if active_track:
+         cv2.circle(frame, (cx, cy), 2, config.HUD_COLOR_DANGER, -1)
+    
+    # 3. Target Data Panel (Bottom Left) - Only if locked
+    # ---------------------------------------------------------
+    if active_track:
+        panel_x = 10
+        panel_y = h - 100
+        
+        # Speed estimation
+        speed = active_track.get_average_speed()
+        
+        # Data lines
+        lines = [
+            f"TGT: #{active_track.track_id}",
+            f"POS: {int(active_track.kf.x[0])}, {int(active_track.kf.x[1])}",
+            f"SPD: {speed:.1f} px/f",
+            f"AGE: {active_track.age} f"
+        ]
+        
+        for i, line in enumerate(lines):
+            cv2.putText(frame, line, (panel_x, panel_y + (i * 15)), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, primary_color, 1)
+    
+    # 4. Corner Brackets (Decorative)
+    # ---------------------------------------------------------
+    corner_len = 30
+    # Top Left
+    cv2.line(frame, (10, 40), (10, 40 + corner_len), primary_color, 1)
+    cv2.line(frame, (10, 40), (10 + corner_len, 40), primary_color, 1)
+    # Top Right
+    cv2.line(frame, (w - 10, 40), (w - 10, 40 + corner_len), primary_color, 1)
+    cv2.line(frame, (w - 10, 40), (w - 10 - corner_len, 40), primary_color, 1)
+    # Bottom Left
+    cv2.line(frame, (10, h - 10), (10, h - 10 - corner_len), primary_color, 1)
+    cv2.line(frame, (10, h - 10), (10 + corner_len, h - 10), primary_color, 1)
+    # Bottom Right
+    cv2.line(frame, (w - 10, h - 10), (w - 10, h - 10 - corner_len), primary_color, 1)
+    cv2.line(frame, (w - 10, h - 10), (w - 10 - corner_len, h - 10), primary_color, 1)
 
+def draw_roi_rect(frame, name, roi_size=160):
+    # Draw dashed ROI rectangle
+    h, w = frame.shape[:2]
+    
+    # Calculate coords based on name (same logic as controller)
+    if name == "CENTER":
+        x1, y1 = (w - roi_size)//2, (h - roi_size)//2
+    elif name == "TOP-L":
+        x1, y1 = 0, 0
+    elif name == "TOP-R":
+        x1, y1 = w - roi_size, 0
+    elif name == "BOT-L":
+        x1, y1 = 0, h - roi_size
+    else: # BOT-R
+        x1, y1 = w - roi_size, h - roi_size
+        
+    x2, y2 = x1 + roi_size, y1 + roi_size
+    
+    # Draw dashed rect using external util or simple implementation
+    # Simple dashed implementation
+    color = (0, 255, 0)
+    thickness = 2
+    dash_len = 10
+    
+    # Top/Bottom
+    for x in range(x1, x2, dash_len*2):
+        cv2.line(frame, (x, y1), (min(x+dash_len, x2), y1), color, thickness)
+        cv2.line(frame, (x, y2), (min(x+dash_len, x2), y2), color, thickness)
+        
+    # Left/Right
+    for y in range(y1, y2, dash_len*2):
+        cv2.line(frame, (x1, y), (x1, min(y+dash_len, y2)), color, thickness)
+        cv2.line(frame, (x2, y), (x2, min(y+dash_len, y2)), color, thickness)
+        
+    # Label
+    cv2.putText(frame, f"SCAN: {name}", (x1+5, y1+20), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-def _draw_target_info(frame, track, panel_x, panel_y):
-    """Draw primary target information section"""
-    # Section header
-    cv2.putText(frame, "PRIMARY TARGET", (panel_x + 10, panel_y + 80),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-    
-    # Calculate metrics
-    sx, sy = track.kf.x[0], track.kf.x[1]
-    speed = track.get_average_speed()
-    
-    # Distance estimation
-    if track.last_detection:
-        x1, y1, x2, y2 = track.last_detection
-        pixel_w = max(1, x2 - x1)
-        distance = (config.KNOWN_WIDTH_CM * config.FOCAL_LENGTH) / pixel_w
-    else:
-        distance = 0
-    
-    # Target info line
-    cv2.putText(frame, f"ID: {track.track_id}  Dist: {distance:.0f}cm  Vel: {speed:.1f}px/f", 
-               (panel_x + 10, panel_y + 100), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-    
-    # Threat level bar
-    _draw_threat_bar(frame, track, panel_x + 10, panel_y + 110)
-    
-    # Motion state
-    if track.is_aggressive_motion():
-        motion_text = "AGGRESSIVE"
-        motion_color = (0, 0, 255)
-    elif track.is_fast_moving():
-        motion_text = "FAST"
-        motion_color = (0, 165, 255)
-    else:
-        motion_text = "NORMAL"
-        motion_color = (0, 255, 0)
-    
-    cv2.putText(frame, f"Motion: {motion_text}", (panel_x + 10, panel_y + 135),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.45, motion_color, 1)
+def draw_servo_crosshair(frame, center_x, center_y, dead_zone_radius):
+    # Draw center crosshair and deadzone circle
+    color = (100, 100, 100)
+    cv2.circle(frame, (center_x, center_y), int(dead_zone_radius), color, 1)
+    cv2.line(frame, (center_x - 15, center_y), (center_x + 15, center_y), color, 1)
+    cv2.line(frame, (center_x - 15, center_y), (center_x + 15, center_y), color, 1)
+    cv2.line(frame, (center_x, center_y - 15), (center_x, center_y + 15), color, 1)
 
-
-def _draw_threat_bar(frame, track, bar_x, bar_y):
-    """Draw horizontal threat level bar with color gradient"""
-    threat_normalized = min(track.threat_score / 300.0, 1.0)
-    bar_width = 200
-    bar_height = 12
+def draw_dashed_rect(frame, pt1, pt2, color, thickness=1, dash_length=10):
+    # Draw a dashed rectangle
+    x1, y1 = pt1
+    x2, y2 = pt2
     
-    # Background bar
-    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height),
-                 (50, 50, 50), -1)
-    
-    # Filled bar with color gradient
-    filled_width = int(bar_width * threat_normalized)
-    if threat_normalized > 0.7:
-        bar_color = (0, 0, 255)  # Red - high threat
-    elif threat_normalized > 0.4:
-        bar_color = (0, 165, 255)  # Orange - medium
-    else:
-        bar_color = (0, 255, 0)  # Green - low
-    
-    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled_width, bar_y + bar_height),
-                 bar_color, -1)
-    
-    # Threat percentage text
-    cv2.putText(frame, f"Threat: {int(threat_normalized * 100)}%", 
-               (bar_x + bar_width + 10, bar_y + 10),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    # Top edge
+    for x in range(x1, x2, dash_length * 2):
+        cv2.line(frame, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
+    # Bottom edge
+    for x in range(x1, x2, dash_length * 2):
+        cv2.line(frame, (x, y2), (min(x + dash_length, x2), y2), color, thickness)
+    # Left edge
+    for y in range(y1, y2, dash_length * 2):
+        cv2.line(frame, (x1, y), (x1, min(y + dash_length, y2)), color, thickness)
+    # Right edge
+    for y in range(y1, y2, dash_length * 2):
+        cv2.line(frame, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)

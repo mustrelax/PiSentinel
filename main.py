@@ -1,11 +1,11 @@
-# main.py
 import threading
 import argparse
+import logging
 from aiohttp import web
 
 import config
 from webrtc_utils import FrameSource
-from tracker import Tracker
+from tracking import TrackingController
 from io_devices import (
     RealCameraInput, 
     SimulationInput, 
@@ -14,6 +14,17 @@ from io_devices import (
 )
 from tracking_thread import TrackingThread
 from web_server import create_app
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL),
+    format=config.LOG_FORMAT,
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("Main")
 
 def main():
     parser = argparse.ArgumentParser(description="Pi-Sentinel Tracking System")
@@ -25,14 +36,14 @@ def main():
         help="Operating mode: 'real_camera' or 'simulation'."
     )
     args = parser.parse_args()
-    print(f"Starting in {args.mode} mode.")
+    logger.info(f"Starting in {args.mode} mode.")
 
     # 1. Create shared resources
     frame_source = FrameSource()
     stop_event = threading.Event()
 
     # 2. Create core tracker logic
-    tracker = Tracker()
+    tracker = TrackingController()
 
     # 3. Create hardware/IO controllers based on mode
     servo_controller = ServoController()
@@ -60,8 +71,11 @@ def main():
 
     # 5. Start the web server
     app = create_app(frame_source, stop_event)
+    # Suppress aiohttp access logs
+    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+
     print(f"HTTP/WebRTC server starting at http://{config.HOST}:{config.PORT}")
-    web.run_app(app, host=config.HOST, port=config.PORT)
+    web.run_app(app, host=config.HOST, port=config.PORT, access_log=None)
 
 if __name__ == "__main__":
     main()

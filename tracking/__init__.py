@@ -1,10 +1,3 @@
-"""
-Tracking module: Multi-object tracking with swarm-aware threat prioritization.
-
-Public API:
-    - TrackingController: Main interface for tracking system
-    - Track: Individual track state (for advanced usage)
-"""
 from tracking.controller import TrackingController
 from tracking.track import Track
 from tracking.multi_tracker import MultiObjectTracker

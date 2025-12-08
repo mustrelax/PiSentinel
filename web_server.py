@@ -1,4 +1,3 @@
-# web_server.py
 from pathlib import Path
 import asyncio
 import secrets

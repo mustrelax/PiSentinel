@@ -1,4 +1,3 @@
-# webrtc_utils.py
 from typing import Optional
 from fractions import Fraction
 import threading

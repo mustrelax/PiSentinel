@@ -1,32 +1,24 @@
-"""
-MultiObjectTracker v2: Stable swarm tracking
-Key changes:
-1. Track merging for overlapping detections
-2. Detection suppression in swarm regions
-3. Stricter new track creation
-4. Ghost track prevention
-"""
 import math
 import numpy as np
+import logging
 from collections import deque
 
+import config
 from tracking.track import Track
 from tracking.matcher import HungarianMatcher
 
+logger = logging.getLogger(__name__)
+
 
 class MultiObjectTracker:
-    """
-    Main MOT orchestrator with swarm-aware stability features.
-    """
-    
     # TRACK MERGE PARAMETERS
     MERGE_DISTANCE = 70           # Merge tracks closer than this (pixels)
     MERGE_MIN_AGE = 3             # Only merge tracks older than this
     
-    # NEW TRACK CREATION PARAMETERS (STRICTER)
-    MIN_CONFIDENCE_NEW_TRACK = 0.30   # Slightly lower for stationary detection
-    SUPPRESS_NEW_IN_SWARM_RADIUS = 100  # Larger radius - less new tracks near existing
-    MIN_FRAMES_BETWEEN_NEW_TRACKS = 3   # Don't create new track every frame
+    # NEW TRACK CREATION PARAMETERS
+    MIN_CONFIDENCE_NEW_TRACK = 0.30   # lower for stationary
+    SUPPRESS_NEW_IN_SWARM_RADIUS = 100  # radius limit
+    MIN_FRAMES_BETWEEN_NEW_TRACKS = 3   # throttle creation
     
     # DETECTION STABILIZATION
     DETECTION_BUFFER_SIZE = 3     # Buffer detections over N frames
@@ -49,11 +41,8 @@ class MultiObjectTracker:
         # NEW: Track creation throttle
         self.last_track_creation_frame = 0
     
-    def _should_suppress_new_track(self, detection, confidences_idx):
-        """
-        Check if we should suppress creation of a new track here.
-        Prevents ID explosion in swarm regions.
-        """
+    def _should_suppress_new_track(self, detection):
+        # Prevent ID explosion in swarm regions.
         x1, y1, x2, y2 = detection
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
         
@@ -72,10 +61,7 @@ class MultiObjectTracker:
         return False
     
     def _merge_overlapping_tracks(self):
-        """
-        Merge tracks that are too close together.
-        Keeps the older/more established track.
-        """
+        # Merge close tracks. Keep older one.
         if len(self.tracks) < 2:
             return
         
@@ -110,19 +96,16 @@ class MultiObjectTracker:
                     
                     # Transfer hits to keep track
                     keep_track.hits += delete_track.hits // 2
-                    
                     merged_ids.add(delete_track.track_id)
-                    print(f"[MERGE] Track {delete_track.track_id} → {keep_track.track_id} (dist:{distance:.0f}px)")
+                    logger.info(f"[MERGE] Track {delete_track.track_id} -> {keep_track.track_id} (dist:{distance:.0f}px)")
         
+        # burası bazen fazla siliyor ama olsun
         # Remove merged tracks
         if merged_ids:
             self.tracks = [t for t in self.tracks if t.track_id not in merged_ids]
     
     def _cleanup_ghost_tracks(self):
-        """
-        Remove tracks that have truly diverged.
-        Be CONSERVATIVE - don't delete tracks that might return!
-        """
+        # Remove diverged tracks. Conservative.
         ghost_ids = []
         
         for track in self.tracks:
@@ -150,14 +133,11 @@ class MultiObjectTracker:
                     continue
         
         if ghost_ids:
-            print(f"[GHOST] Removing: {ghost_ids}")
+            logger.info(f"[GHOST] Removing: {ghost_ids}")
             self.tracks = [t for t in self.tracks if t.track_id not in ghost_ids]
     
     def _filter_detections(self, detections, confidences):
-        """
-        Filter and stabilize detections.
-        Returns (filtered_detections, filtered_confidences)
-        """
+        # Filter and stabilize.
         if len(detections) == 0:
             return [], []
         
@@ -192,9 +172,7 @@ class MultiObjectTracker:
         return filtered_dets, filtered_confs
     
     def update(self, detections, confidences):
-        """
-        Main update loop with swarm-aware stability features.
-        """
+        # Main update loop.
         self.frame_count += 1
         
         # STEP 0: Filter detections
@@ -234,12 +212,12 @@ class MultiObjectTracker:
                 continue
             
             # Skip if too close to existing track (swarm region)
-            if self._should_suppress_new_track(det, det_idx):
+            if self._should_suppress_new_track(det):
                 continue
             
             # Throttle: Don't create tracks too frequently
             if (self.frame_count - self.last_track_creation_frame) < self.MIN_FRAMES_BETWEEN_NEW_TRACKS:
-                # Allow only if we have NO confirmed tracks
+                # Allow only if NO confirmed tracks
                 if any(t.state == Track.CONFIRMED for t in self.tracks):
                     continue
             
@@ -262,20 +240,17 @@ class MultiObjectTracker:
         deleted_count = before_count - len(self.tracks)
         
         if deleted_count > 0:
-            print(f"[TRACK] Deleted {deleted_count} track(s), remaining: {len(self.tracks)}")
+            logger.info(f"[TRACK] Deleted {deleted_count} track(s), remaining: {len(self.tracks)}")
     
     def get_all_tracks(self):
-        """Return all tracks for external processing"""
+        # Return all tracks for external processing
         return self.tracks
     
     def get_confirmed_tracks(self):
-        """Return only confirmed tracks"""
+        # Return only confirmed tracks
         return [t for t in self.tracks if t.state == Track.CONFIRMED]
     
     def get_track_count(self):
-        """Return count of confirmed tracks"""
+        # Return count of confirmed tracks
         return len(self.get_confirmed_tracks())
 
-
-# Need to import config for frame dimensions
-import config

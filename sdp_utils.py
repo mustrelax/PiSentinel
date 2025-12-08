@@ -6,9 +6,7 @@ def set_bitrate_hints(
     framerate: int | None = None,
     add_framerate_hint: bool = False,
 ) -> str:
-    """
-    öyle işte
-    """
+    # öyle işte
     lines = sdp.splitlines()
     out = []
     in_video = False

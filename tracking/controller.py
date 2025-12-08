@@ -1,64 +1,53 @@
-"""
-TrackingController v3: PRIMARY LOCK MODE
-Key changes:
-1. Simplified - no swarm centroid, just lock on ONE target
-2. Ignore other drones for servo control
-3. Visual tracking of all drones but servo follows only locked target
-4. More stable servo control
-5. CLAHE + Sharpen preprocessing for better detection
-"""
 import math
 import cv2
 import numpy as np
+import logging
+import time
 from simple_pid import PID
 from datetime import datetime
-import time
 from ultralytics import YOLO
 
 import config
 from tracking.multi_tracker import MultiObjectTracker
 from tracking.threat_analyzer import SwarmAwareThreatAnalyzer
+from visualization.hud import draw_hud, draw_roi_rect, draw_servo_crosshair, draw_dashed_rect
 
+# Setup logger
+logger = logging.getLogger(__name__)
 
 class TrackingController:
-    """
-    PRIMARY LOCK tracking controller.
-    Locks onto one drone and ignores others for servo control.
-    """
-    
     # PREPROCESSING PARAMETERS
-    ENABLE_PREPROCESSING = False # Preprocessing state
+    ENABLE_PREPROCESSING = False 
     SHOW_PREPROCESSED = False
     CLAHE_CLIP_LIMIT = config.CLAHE_CLIP_LIMIT
-    CLAHE_TILE_SIZE = (8, 8)      # Grid size for local contrast
-    SHARPEN_STRENGTH = 0.5       # Sharpening amount (0.5-1.5)
-    SHARPEN_SIGMA = 1.0           # Gaussian blur sigma
+    CLAHE_TILE_SIZE = (8, 8)
+    SHARPEN_STRENGTH = 0.5
+    SHARPEN_SIGMA = 1.0
     GAMMA = config.GAMMA_CORRECTION
     
     def __init__(self):
         # Load YOLO model
         try:
             self.model = YOLO(config.MODEL_PATH)
-            print(f"Model '{config.MODEL_PATH}' loaded successfully.")
+            logger.info(f"Model '{config.MODEL_PATH}' loaded successfully.")
         except Exception as e:
-            print(f"FATAL ERROR: Error loading model: {e}")
+            logger.error(f"FATAL ERROR: Error loading model: {e}")
             raise
         
         # Multi-object tracker
         self.mot = MultiObjectTracker()
         
-        # CLAHE object (create once, reuse)
+        # CLAHE object
         self.clahe = cv2.createCLAHE(
             clipLimit=self.CLAHE_CLIP_LIMIT, 
             tileGridSize=self.CLAHE_TILE_SIZE
         )
-        print(f"[PREPROCESS] CLAHE enabled: clip={self.CLAHE_CLIP_LIMIT}, tile={self.CLAHE_TILE_SIZE}")
-        print(f"[PREPROCESS] Sharpen enabled: strength={self.SHARPEN_STRENGTH}, sigma={self.SHARPEN_SIGMA}")
+        logger.info(f"[PREPROCESS] CLAHE enabled: clip={self.CLAHE_CLIP_LIMIT}")
         
-        # PID controllers - with anti-windup
+        # PID controllers
         self.pid_pan = PID(**config.PID_PAN, setpoint=config.FRAME_WIDTH // 2)
         self.pid_pan.output_limits = (-2.0, 2.0)
-        self.pid_pan.sample_time = 0.033  # ~30fps
+        self.pid_pan.sample_time = 0.033
         
         self.pid_tilt = PID(**config.PID_TILT, setpoint=config.FRAME_HEIGHT // 2)
         self.pid_tilt.output_limits = (-2.0, 2.0)
@@ -79,9 +68,9 @@ class TrackingController:
         self.smoothed_target_y = config.FRAME_HEIGHT / 2
         self.target_smooth_alpha = 0.4
         
-        # IDLE DETECTION - stop servo when target is stable
+        # IDLE DETECTION
         self.consecutive_in_deadzone = 0
-        self.IDLE_THRESHOLD = 10  # frames in deadzone before full stop  # How fast to follow target
+        self.IDLE_THRESHOLD = 10
         
         # Lock state
         self.locked = False
@@ -97,9 +86,9 @@ class TrackingController:
         self.current_sector_name = "WIDE"
         
         # Spatial Lock State
-        self.last_locked_pos = None  # (x, y) of last locked target
+        self.last_locked_pos = None
 
-        # Dynamic threat assessment (NEW - Military-grade)
+        # Dynamic threat assessment
         from tracking.threat_analyzer import ReAssessmentTimer, TacticalScenario
         self.reassess_timer = ReAssessmentTimer()
         self.current_scenario = TacticalScenario.SINGLE
@@ -107,19 +96,12 @@ class TrackingController:
 
         # Sentry Mode State
         self.last_detection_time = time.time()
-        self.sentry_phase = 0.0 # Phase for sine wave scanning
+        self.sentry_phase = 0.0
         self.last_known_pan = config.PAN_START
         self.last_known_tilt = config.TILT_START
     
+    
     def _preprocess_frame(self, frame):
-        """
-        Apply CLAHE + Unsharp Masking for better small object detection.
-        
-        CLAHE: Improves local contrast, makes drone silhouettes more visible
-        Sharpen: Enhances edges, helps YOLO detect distant/small objects
-        
-        Returns: preprocessed frame (same size)
-        """
         if not self.ENABLE_PREPROCESSING:
             return frame
         
@@ -160,7 +142,7 @@ class TrackingController:
         return final
     
     def _apply_servo_smoothing(self, pan_corr, tilt_corr, error_radius):
-        """Smooth servo corrections - MORE smooth when near target"""
+        # Smooth servo corrections - MORE smooth when near target
         
         # ADAPTIVE ALPHA: closer to target = smoother movement
         if error_radius < 30:
@@ -190,7 +172,7 @@ class TrackingController:
         return smoothed_pan, smoothed_tilt
     
     def _get_dead_zone(self, track):
-        """Get dead zone size based on track state - LARGER for stability"""
+        # Get dead zone size based on track state - LARGER for stability
         base = 40  # Increased from 30
         
         if track is None:
@@ -208,7 +190,7 @@ class TrackingController:
         return base
     
     def _smooth_target_position(self, raw_x, raw_y):
-        """Apply low-pass filter to target position"""
+        # Apply low-pass filter to target position
         self.smoothed_target_x = (self.target_smooth_alpha * raw_x + 
                                   (1 - self.target_smooth_alpha) * self.smoothed_target_x)
         self.smoothed_target_y = (self.target_smooth_alpha * raw_y + 
@@ -217,7 +199,7 @@ class TrackingController:
         return self.smoothed_target_x, self.smoothed_target_y
     
     def _visualize_tracks(self, frame, tracks, active_track):
-        """Draw all tracks - locked target in RED, others accordingly"""
+        # Draw all tracks - locked target in RED, others accordingly
         active_id = active_track.track_id if active_track else None
         
         for track in tracks:
@@ -257,7 +239,7 @@ class TrackingController:
             # Draw box (dashed for LOST)
             if is_lost and not is_locked:
                 # Dashed rectangle for lost tracks
-                self._draw_dashed_rect(frame, (x1, y1), (x2, y2), color, thickness)
+                draw_dashed_rect(frame, (x1, y1), (x2, y2), color, thickness)
             else:
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
             
@@ -274,10 +256,7 @@ class TrackingController:
         return frame
     
     def _get_roi_crop(self, frame, target_x, target_y):
-        """
-        Calculate ROI crop coordinates centered on target.
-        Returns: (crop_img, offset_x, offset_y)
-        """
+        # Calculate ROI crop coordinates centered on target.
         h, w = frame.shape[:2]
         roi_size = config.ROI_SIZE
         half_size = roi_size // 2
@@ -294,11 +273,8 @@ class TrackingController:
         return frame[y1:y2, x1:x2], x1, y1
 
     def _get_sector_crop(self, frame, sector_idx):
-        """
-        Get crop for specific sector.
-        Sectors: 0=Center, 1=TL, 2=TR, 3=BL, 4=BR
-        Returns: (crop_img, offset_x, offset_y, sector_name)
-        """
+        # Get crop for specific sector.
+        # Sectors: 0=Center, 1=TL, 2=TR, 3=BL, 4=BR
         h, w = frame.shape[:2]
         roi_size = config.ROI_SIZE
         
@@ -335,7 +311,7 @@ class TrackingController:
         return frame[y1:y2, x1:x2], x1, y1, name
 
     def _translate_detections_to_global(self, detections, offset_x, offset_y):
-        """Convert ROI-local detections to global coordinates"""
+        # Convert ROI-local detections to global coordinates
         global_dets = []
         for det in detections:
             x1, y1, x2, y2 = det
@@ -347,166 +323,20 @@ class TrackingController:
             ])
         return global_dets
 
-    def _draw_dashed_rect(self, frame, pt1, pt2, color, thickness):
-        """Draw a dashed rectangle"""
-        x1, y1 = pt1
-        x2, y2 = pt2
-        
-        dash_length = 10
-        gap_length = 5
-        
-        # Top edge
-        for x in range(x1, x2, dash_length + gap_length):
-            cv2.line(frame, (x, y1), (min(x + dash_length, x2), y1), color, thickness)
-        # Bottom edge
-        for x in range(x1, x2, dash_length + gap_length):
-            cv2.line(frame, (x, y2), (min(x + dash_length, x2), y2), color, thickness)
-        # Left edge
-        for y in range(y1, y2, dash_length + gap_length):
-            cv2.line(frame, (x1, y), (x1, min(y + dash_length, y2)), color, thickness)
-        # Right edge
-        for y in range(y1, y2, dash_length + gap_length):
-            cv2.line(frame, (x2, y), (x2, min(y + dash_length, y2)), color, thickness)
-    
-    def _draw_hud(self, frame, active_track, all_tracks, roi_active=False, inference_ms=0.0):
-        """
-        Draw a minimal, engineering-grade HUD.
-        """
-        h, w = frame.shape[:2]
-        primary_color = config.HUD_COLOR_PRIMARY
-        
-        # 1. Top Bar (Status Line)
-        # ---------------------------------------------------------
-        # [PiSentinel] [MODE: AUTO] [INF: 15ms]          [LOCK: ON]
-        
-        bar_height = 40  # Increased height for bigger text
-        # Semi-transparent background for top bar
-        sub_img = frame[0:bar_height, 0:w]
-        rect = np.full(sub_img.shape, (0, 0, 0), dtype=np.uint8)
-        res = cv2.addWeighted(sub_img, 1 - config.HUD_OPACITY, rect, config.HUD_OPACITY, 0)
-        frame[0:bar_height, 0:w] = res
-        
-        # System Name (Left)
-        cv2.putText(frame, "PiSentinel", (10, 25), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, primary_color, 1)
-        
-        # Status Indicators
-        status_x = 150
-        status_y = 25
-        
-        # ROI Status
-        if roi_active:
-            roi_text = "ROI: LOCK"
-            roi_color = primary_color
-        elif config.ZOOM_SEARCH_ENABLED:
-            roi_text = f"SCAN: {self.current_sector_name}"
-            roi_color = (0, 200, 255) # Orange-ish for scan
-        else:
-            roi_text = "ROI: WIDE"
-            roi_color = (150, 150, 150)
-            
-        cv2.putText(frame, f"[{roi_text}]", (status_x, status_y), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, roi_color, 1)
-        
-        # Track Count
-        confirmed = len([t for t in all_tracks if t.state == t.CONFIRMED])
-        cv2.putText(frame, f"[TRK: {confirmed}]", (status_x + 100, status_y), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, primary_color, 1)
 
-        # Inference Time and Time (Bottom Right - Minimal)
-        time_str = datetime.now().strftime('%H:%M:%S')
-        inf_text = f"[INF: {inference_ms:.1f}ms] [{time_str}]"
-        
-        # Calculate position
-        text_size = cv2.getTextSize(inf_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-        text_x = w - text_size[0] - 10
-        text_y = h - 10
-        
-        # Draw background bar for readability
-        cv2.rectangle(frame, (text_x - 5, text_y - 20), (w, h), (0, 0, 0), -1)
-        
-        cv2.putText(frame, inf_text, (text_x, text_y - 5), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, primary_color, 1)
-        
-        # Lock Status (Right aligned)
-        if active_track:
-            lock_text = f"LOCK: #{active_track.track_id}"
-            lock_color = config.HUD_COLOR_DANGER
-            if active_track.state == active_track.LOST:
-                lock_text = "LOCK: LOST"
-                lock_color = config.HUD_COLOR_WARNING
-        else:
-            lock_text = "LOCK: SEARCH"
-            lock_color = (150, 150, 150)
-            
-        text_size = cv2.getTextSize(lock_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-        cv2.putText(frame, lock_text, (w - text_size[0] - 10, 20), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, lock_color, 1)
-        
-        # 2. Crosshair (Center)
-        # ---------------------------------------------------------
-        cx, cy = w // 2, h // 2
-        gap = 10
-        length = 20
-        # Horizontal
-        cv2.line(frame, (cx - gap - length, cy), (cx - gap, cy), primary_color, 1)
-        cv2.line(frame, (cx + gap, cy), (cx + gap + length, cy), primary_color, 1)
-        # Vertical
-        cv2.line(frame, (cx, cy - gap - length), (cx, cy - gap), primary_color, 1)
-        cv2.line(frame, (cx, cy + gap), (cx, cy + gap + length), primary_color, 1)
-        
-        # Center dot
-        if active_track:
-             cv2.circle(frame, (cx, cy), 2, config.HUD_COLOR_DANGER, -1)
-        
-        # 3. Target Data Panel (Bottom Left) - Only if locked
-        # ---------------------------------------------------------
-        if active_track:
-            panel_x = 10
-            panel_y = h - 100
-            
-            # Speed estimation
-            speed = active_track.get_average_speed()
-            
-            # Data lines
-            lines = [
-                f"TGT: #{active_track.track_id}",
-                f"POS: {int(active_track.kf.x[0])}, {int(active_track.kf.x[1])}",
-                f"SPD: {speed:.1f} px/f",
-                f"AGE: {active_track.age} f"
-            ]
-            
-            for i, line in enumerate(lines):
-                cv2.putText(frame, line, (panel_x, panel_y + (i * 15)), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, primary_color, 1)
-        
-        # 4. Corner Brackets (Decorative)
-        # ---------------------------------------------------------
-        corner_len = 30
-        # Top Left
-        cv2.line(frame, (10, 40), (10, 40 + corner_len), primary_color, 1)
-        cv2.line(frame, (10, 40), (10 + corner_len, 40), primary_color, 1)
-        # Top Right
-        cv2.line(frame, (w - 10, 40), (w - 10, 40 + corner_len), primary_color, 1)
-        cv2.line(frame, (w - 10, 40), (w - 10 - corner_len, 40), primary_color, 1)
-        # Bottom Left
-        cv2.line(frame, (10, h - 10), (10, h - 10 - corner_len), primary_color, 1)
-        cv2.line(frame, (10, h - 10), (10 + corner_len, h - 10), primary_color, 1)
-        # Bottom Right
-        cv2.line(frame, (w - 10, h - 10), (w - 10, h - 10 - corner_len), primary_color, 1)
-        cv2.line(frame, (w - 10, h - 10), (w - 10 - corner_len, h - 10), primary_color, 1)
+    
+
     
     def _control_servo(self, frame, active_track):
-        """Servo control - follows ONLY the locked target"""
+        # Servo control - follows ONLY the locked target
         center_x = config.FRAME_WIDTH // 2
         center_y = config.FRAME_HEIGHT // 2
         
+        
         dead_zone = self._get_dead_zone(active_track)
         
-        # Draw center crosshair
-        cv2.circle(frame, (center_x, center_y), dead_zone, (100, 100, 100), 1)
-        cv2.line(frame, (center_x - 15, center_y), (center_x + 15, center_y), (100, 100, 100), 1)
-        cv2.line(frame, (center_x, center_y - 15), (center_x, center_y + 15), (100, 100, 100), 1)
+        # Draw center crosshair using external visualizer
+        draw_servo_crosshair(frame, center_x, center_y, dead_zone)
         
         # NO TARGET: Hold position, decay any movement
         # NO TARGET: Check for Sentry Mode or Hold
@@ -659,37 +489,35 @@ class TrackingController:
         return frame
     
     def toggle_preprocessing(self):
-        """Toggle preprocessing on/off for A/B testing"""
+        # Toggle preprocessing on/off for A/B testing
         self.ENABLE_PREPROCESSING = not self.ENABLE_PREPROCESSING
         status = "ON" if self.ENABLE_PREPROCESSING else "OFF"
-        print(f"[PREPROCESS] Preprocessing toggled: {status}")
+        logger.info(f"[PREPROCESS] Preprocessing toggled: {status}")
         return self.ENABLE_PREPROCESSING
     
     def toggle_show_preprocessed(self):
-        """Toggle between showing original vs preprocessed frame"""
+        # Toggle between showing original vs preprocessed frame
         self.SHOW_PREPROCESSED = not self.SHOW_PREPROCESSED
         status = "PREPROCESSED" if self.SHOW_PREPROCESSED else "ORIGINAL"
-        print(f"[VIEW] Now showing: {status}")
+        logger.info(f"[VIEW] Now showing: {status}")
         return self.SHOW_PREPROCESSED
     
     def set_preprocessing_params(self, clip_limit=None, sharpen_strength=None):
-        """Adjust preprocessing parameters at runtime"""
+        # Adjust preprocessing parameters at runtime
         if clip_limit is not None:
             self.CLAHE_CLIP_LIMIT = clip_limit
             self.clahe = cv2.createCLAHE(
                 clipLimit=self.CLAHE_CLIP_LIMIT,
                 tileGridSize=self.CLAHE_TILE_SIZE
             )
-            print(f"[PREPROCESS] CLAHE clip limit: {clip_limit}")
+            logger.info(f"[PREPROCESS] CLAHE clip limit: {clip_limit}")
         
         if sharpen_strength is not None:
             self.SHARPEN_STRENGTH = sharpen_strength
-            print(f"[PREPROCESS] Sharpen strength: {sharpen_strength}")
+            logger.info(f"[PREPROCESS] Sharpen strength: {sharpen_strength}")
     
     def process_frame(self, frame: np.ndarray):
-        """
-        Main processing loop with ROI Tracking and Adaptive Inference.
-        """
+        # Main processing loop with ROI Tracking and Adaptive Inference.
         self.frame_count += 1
         
         # Get current active track ID from MOT
@@ -809,7 +637,7 @@ class TrackingController:
                 None
             )
 
-        # === DYNAMIC THREAT ASSESSMENT (MILITARY-GRADE) ===
+        # === DYNAMIC THREAT ASSESSMENT ===
         # Detect scenario
         self.current_scenario = SwarmAwareThreatAnalyzer.detect_scenario(all_tracks)
 
@@ -857,7 +685,7 @@ class TrackingController:
         
         annotated = self._visualize_tracks(annotated, all_tracks, active_track)
         
-        self._draw_hud(annotated, active_track, all_tracks, roi_active=roi_active, inference_ms=self.last_inference_ms)
+        draw_hud(annotated, active_track, all_tracks, roi_active=roi_active, inference_ms=self.last_inference_ms, current_sector_name=self.current_sector_name)
         annotated = self._control_servo(annotated, active_track)
         
         return annotated, self.pan_angle, self.tilt_angle

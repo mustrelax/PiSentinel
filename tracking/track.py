@@ -1,12 +1,3 @@
-# tracking/track.py
-"""
-Track class v2: Individual tracked object state.
-Key changes:
-1. FASTER deletion of ghost tracks
-2. Screen boundary checking
-3. Velocity damping for stationary objects
-4. Better state transitions for swarm scenarios
-"""
 import math
 import numpy as np
 from filterpy.kalman import KalmanFilter
@@ -16,10 +7,8 @@ import config
 
 
 class Track:
-    """
-    Individual tracked object with Kalman filter.
-    Optimized for swarm tracking stability.
-    """
+    # Individual tracked object with Kalman filter.
+    # Optimized for stability.
     
     # States
     TENTATIVE = 0
@@ -34,13 +23,13 @@ class Track:
     # SCREEN BOUNDARIES (with margin)
     SCREEN_MARGIN = 100  # pixels outside screen before considering "escaped"
     
-    # DELETION PARAMETERS (FROM WORKING 16-17/11 SYSTEM)
-    # Key insight: LOST tracks should survive on Kalman prediction!
-    TENTATIVE_MAX_AGE = 3        # Unconfirmed: 0.1 sec (Strict noise cleanup)
-    LOST_MAX_AGE_SLOW = 60       # Slow tracks: 2 sec before delete
-    LOST_MAX_AGE_FAST = 90       # Fast tracks: 3 sec (they WILL return!)
-    LOST_THRESHOLD_SLOW = 10     # Mark as lost after 10 frames
-    LOST_THRESHOLD_FAST = 20     # Fast objects: 20 frames (more tolerance)
+    # DELETION PARAMETERS
+    # LOST tracks survive on Kalman prediction!
+    TENTATIVE_MAX_AGE = 3        # Unconfirmed: 0.1 sec
+    LOST_MAX_AGE_SLOW = 60       # Slow tracks: 2 sec
+    LOST_MAX_AGE_FAST = 90       # Fast tracks: 3 sec
+    LOST_THRESHOLD_SLOW = 10     # Mark lost after 10
+    LOST_THRESHOLD_FAST = 20     # Fast objects: 20 frames
     
     # CONFIRMATION PARAMETERS
     MIN_HITS_TO_CONFIRM = 4      # Need 4 hits (Fast but stable)
@@ -52,10 +41,11 @@ class Track:
         self.age = 0
         self.hits = 1
         self.time_since_update = 0
-        self.consecutive_misses = 0  # NEW: track consecutive misses
-        self.last_update_frame = 0   # NEW: for adaptive inference frame skipping
+        self.consecutive_misses = 0
+        self.last_update_frame = 0
         
         # Kalman Filter
+        # burası önemli
         self.kf = KalmanFilter(dim_x=4, dim_z=2)
         x1, y1, x2, y2 = initial_detection
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
@@ -63,14 +53,14 @@ class Track:
         self.kf.x = np.array([cx, cy, 0.0, 0.0])
         self.kf.F = np.array([[1,0,1,0], [0,1,0,1], [0,0,1,0], [0,0,0,1]], dtype=float)
         self.kf.H = np.array([[1,0,0,0], [0,1,0,0]], dtype=float)
-        self.kf.P *= 500.0  # Reduced from 1000 - less uncertainty
+        self.kf.P *= 500.0 
         
         # TUNED for stability
-        self.kf.R = np.array([[8,0], [0,8]], dtype=float)  # Increased - trust detection less
+        self.kf.R = np.array([[8,0], [0,8]], dtype=float)  # trust detection less
         self.kf.Q = np.array([
-            [5, 0, 0, 0],    # Reduced position noise
+            [5, 0, 0, 0],    # position noise
             [0, 5, 0, 0],
-            [0, 0, 20, 0],   # Reduced velocity noise
+            [0, 0, 20, 0],   # velocity noise
             [0, 0, 0, 20]
         ], dtype=float)
         
@@ -111,7 +101,6 @@ class Track:
         return self.get_average_speed() > self.AGGRESSIVE_MODE_THRESHOLD
     
     def is_outside_screen(self):
-        """Check if track has drifted outside screen boundaries"""
         sx, sy = self.kf.x[0], self.kf.x[1]
         
         min_x = -self.SCREEN_MARGIN
@@ -122,7 +111,6 @@ class Track:
         return sx < min_x or sx > max_x or sy < min_y or sy > max_y
     
     def predict(self):
-        """Kalman prediction with adaptive Q and GRADUAL velocity damping"""
         current_speed = self.get_current_speed()
         self.speed_history.append(current_speed)
         
@@ -142,8 +130,6 @@ class Track:
             self.kf.x[2] *= damping
             self.kf.x[3] *= damping
         
-        # SAFETY: If track is young (<10 hits) and we are predicting (missing measurements),
-        # kill velocity to prevent "shooting off" into space based on noise.
         if self.hits < 10 and self.time_since_update > 0:
             self.kf.x[2] *= 0.1
             self.kf.x[3] *= 0.1
@@ -168,7 +154,6 @@ class Track:
         self.time_since_update += 1
     
     def update(self, detection, confidence, frame_count=0):
-        """Update with new detection"""
         x1, y1, x2, y2 = detection
         cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
         
@@ -195,8 +180,8 @@ class Track:
         self.last_confidence = confidence
         self.hits += 1
         self.time_since_update = 0
-        self.consecutive_misses = 0  # Reset miss counter
-        self.last_update_frame = frame_count # Update frame count
+        self.consecutive_misses = 0
+        self.last_update_frame = frame_count
         
         # Update trajectory
         sx, sy = self.kf.x[0], self.kf.x[1]
@@ -207,15 +192,27 @@ class Track:
             required_hits = self.MIN_HITS_FAST if self.is_fast_moving() else self.MIN_HITS_TO_CONFIRM
             if self.hits >= required_hits:
                 self.state = self.CONFIRMED
+                # Fix: Clear warmup trajectory to prevent "jumping" lines
+                self.trajectory.clear()
+                self.trajectory.append((cx, cy))
                 print(f"[TRACK] ID {self.track_id} CONFIRMED (hits:{self.hits})")
         elif self.state == self.LOST:
             # Only log if was lost for significant time
             if self.time_since_update > 10:
                 print(f"[TRACK] ID {self.track_id} RE-ACQUIRED (was lost {self.time_since_update}f)")
+                
+            # Fix jump artifact: Clear history if lost for too long
+            if self.time_since_update > 5:
+                self.trajectory.clear() # Don't draw line from old pos
+                
+                # Reset velocity if gap is huge (prevent shooting off)
+                if self.time_since_update > 15:
+                    self.kf.x[2] *= 0.1
+                    self.kf.x[3] *= 0.1
+
             self.state = self.CONFIRMED
     
     def mark_missed(self):
-        """Called when no detection matched this track"""
         self.consecutive_misses += 1
         
         if self.state == self.CONFIRMED:
@@ -228,12 +225,7 @@ class Track:
                     print(f"[TRACK] ID {self.track_id} LOST (missed:{self.time_since_update}f)")
     
     def is_deleted(self):
-        """
-        Check if track should be deleted.
-        Key principle: LOST tracks survive on Kalman prediction!
-        Only delete when truly hopeless.
-        """
-        # IMMEDIATE DELETE: Way outside screen (no hope of return)
+        # Check if track should be deleted.
         sx, sy = self.kf.x[0], self.kf.x[1]
         if sx < -200 or sx > config.FRAME_WIDTH + 200:
             return True
@@ -264,7 +256,6 @@ class Track:
         return False
     
     def get_predicted_box(self):
-        """Get predicted bounding box"""
         sx, sy = self.kf.x[0], self.kf.x[1]
         
         # Use smoothed box size
@@ -274,7 +265,6 @@ class Track:
         return (int(sx - w/2), int(sy - h/2), int(sx + w/2), int(sy + h/2))
     
     def distance_to(self, other_track):
-        """Calculate distance to another track (for merging)"""
         sx, sy = self.kf.x[0], self.kf.x[1]
         ox, oy = other_track.kf.x[0], other_track.kf.x[1]
         return math.sqrt((sx - ox)**2 + (sy - oy)**2)

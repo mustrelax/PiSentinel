@@ -1,59 +1,34 @@
-"""
-SwarmAwareThreatAnalyzer v4: DYNAMIC THREAT ASSESSMENT (MILITARY-GRADE)
-Major upgrade from PRIMARY LOCK to military C-RAM/CIWS doctrine.
-
-Key features:
-1. Time-To-Impact (TTI) based threat scoring
-2. Three-way threat zones (RED/YELLOW/GREEN)
-3. Dynamic re-assessment every 2-3 seconds
-4. Scenario-aware strategies (single/group/swarm)
-5. Swarm leader detection and prioritization
-6. Adaptive lock strength (50-200 points vs static 1000)
-"""
 import math
 import numpy as np
-from enum import IntEnum
-
+import logging
 import config
+from enum import IntEnum
 from tracking.track import Track
 
+logger = logging.getLogger(__name__)
 
 class ThreatZone(IntEnum):
-    """Threat classification zones (military doctrine)"""
-    RED = 0      # Critical threat - immediate priority
-    YELLOW = 1   # Moderate threat - secondary priority
-    GREEN = 2    # Low threat - monitoring only
+    # Threat zones
+    RED = 0      # critical
+    YELLOW = 1   # moderate
+    GREEN = 2    # monitoring
 
 
 class TacticalScenario(IntEnum):
-    """Tactical scenario classification based on confirmed track count"""
-    SINGLE = 0          # 1 target - simple tracking
-    SMALL_GROUP = 1     # 2-4 targets - balanced approach
-    MEDIUM_SWARM = 2    # 5-10 targets - leader-focused
-    LARGE_SWARM = 3     # 10+ targets - maximum leader priority
+    #Tactical scenario classification based on confirmed track count
+    SINGLE = 0          # 1 target
+    SMALL_GROUP = 1     # 2-4 targets
+    MEDIUM_SWARM = 2    # 5-10 targets (leader focus)
+    LARGE_SWARM = 3     # 10+ targets (leader priority)
 
 
 class ReAssessmentTimer:
-    """
-    Periodic target re-assessment timer.
-    Intervals adapt based on threat level and scenario.
-    """
     def __init__(self):
         self.last_assessment_frame = 0
         self.force_assessment = False
 
     def should_reassess(self, current_frame, current_track, scenario):
-        """
-        Should we re-assess targets this frame?
-
-        Args:
-            current_frame: Current frame number
-            current_track: Currently tracked target (Track object or None)
-            scenario: TacticalScenario enum
-
-        Returns:
-            bool: True if time to reassess
-        """
+        # Should we re-assess targets this frame?
         frames_since_last = current_frame - self.last_assessment_frame
 
         # Force assessment (manual trigger or emergency)
@@ -81,32 +56,16 @@ class ReAssessmentTimer:
         return False
 
     def force_next_frame(self):
-        """Force assessment on next frame (for emergencies)"""
         self.force_assessment = True
 
 
 class SwarmAwareThreatAnalyzer:
-    """
-    DYNAMIC THREAT ASSESSMENT (MILITARY-GRADE)
-
-    Military C-RAM/CIWS doctrine implementation with:
-    - Time-To-Impact (TTI) based threat scoring
-    - Three-way threat zones (RED/YELLOW/GREEN)
-    - Dynamic re-assessment every 2-3 seconds
-    - Scenario-aware strategies (single/group/swarm)
-    - Swarm leader detection and prioritization
-    - Adaptive lock strength (50-200 points vs static 1000)
-
-    All configuration parameters moved to config.py for easy tuning.
-    """
-
-    # DEPRECATED CONSTANTS (kept for backward compatibility in visualization)
     CLOSE_RANGE_BOX_SIZE = 120   # If bbox > this, drone is close
     SUCCESSOR_SEARCH_RADIUS = 100 # pixels to search for new target at last known pos
     
     @staticmethod
     def count_nearby_drones(track, all_tracks, radius):
-        """Count nearby drones (for visualization/info only)"""
+        # Count nearby drones (for visualization/info only)
         tx, ty = track.kf.x[0], track.kf.x[1]
         
         nearby_count = 0
@@ -126,7 +85,7 @@ class SwarmAwareThreatAnalyzer:
     
     @staticmethod
     def is_close_range(track):
-        """Check if drone is at close range (large bounding box)"""
+        #Check if drone is at close range (large bounding box)
         if track.last_detection is None:
             return False
         
@@ -137,26 +96,15 @@ class SwarmAwareThreatAnalyzer:
     
     @staticmethod
     def is_on_screen(track, margin=50):
-        """Check if track is within screen bounds"""
+        # Check if track is within screen bounds
         sx, sy = track.kf.x[0], track.kf.x[1]
 
         return (sx >= -margin and sx <= config.FRAME_WIDTH + margin and
                 sy >= -margin and sy <= config.FRAME_HEIGHT + margin)
 
-    # ========== NEW MILITARY-GRADE THREAT ASSESSMENT METHODS ==========
-
     @staticmethod
     def calculate_time_to_impact(track, center_x, center_y):
-        """
-        Calculate time until target reaches center (Time-To-Impact).
-
-        Args:
-            track: Track object
-            center_x, center_y: Target point (typically screen center)
-
-        Returns:
-            float: TTI in seconds (infinity if moving away or stationary)
-        """
+        # Calculate time until target reaches center (Time-To-Impact mevzusu).
         sx, sy = track.kf.x[0], track.kf.x[1]
         vx, vy = track.kf.x[2], track.kf.x[3]
 
@@ -186,17 +134,7 @@ class SwarmAwareThreatAnalyzer:
 
     @staticmethod
     def calculate_approach_rate(track, center_x, center_y):
-        """
-        Calculate approach speed (px/frame).
-        Positive = approaching, negative = moving away.
-
-        Args:
-            track: Track object
-            center_x, center_y: Target point
-
-        Returns:
-            float: Approach rate in pixels per frame
-        """
+        # Calculate approach speed (px/frame). (+: coming, -: going)
         sx, sy = track.kf.x[0], track.kf.x[1]
         vx, vy = track.kf.x[2], track.kf.x[3]
 
@@ -218,16 +156,7 @@ class SwarmAwareThreatAnalyzer:
 
     @staticmethod
     def predict_trajectory(track, prediction_seconds=3.0):
-        """
-        Predict position 3 seconds ahead (ballistic model).
-
-        Args:
-            track: Track object
-            prediction_seconds: How many seconds ahead to predict
-
-        Returns:
-            tuple: (pred_x, pred_y, confidence)
-        """
+        # Predict position 3 seconds ahead (ballistic model).
         sx, sy = track.kf.x[0], track.kf.x[1]
         vx, vy = track.kf.x[2], track.kf.x[3]
 
@@ -245,15 +174,7 @@ class SwarmAwareThreatAnalyzer:
 
     @staticmethod
     def calculate_acceleration_factor(track):
-        """
-        Detect rapid acceleration (indicator of threat increase).
-
-        Args:
-            track: Track object
-
-        Returns:
-            float: Multiplier for speed score (0.8-1.5)
-        """
+        # Detect rapid acceleration (buna dikkat et).
         if len(track.speed_history) < 3:
             return 1.0
 
@@ -271,16 +192,7 @@ class SwarmAwareThreatAnalyzer:
 
     @staticmethod
     def classify_threat_zone(track, center_x, center_y):
-        """
-        Classify target by threat zone (RED/YELLOW/GREEN).
-
-        Args:
-            track: Track object
-            center_x, center_y: Target point
-
-        Returns:
-            ThreatZone: RED (critical), YELLOW (moderate), or GREEN (low)
-        """
+        # Classify target by threat zone (RED/YELLOW/GREEN).
         tti = SwarmAwareThreatAnalyzer.calculate_time_to_impact(track, center_x, center_y)
         distance = math.sqrt((track.kf.x[0] - center_x)**2 + (track.kf.x[1] - center_y)**2)
         approach_rate = SwarmAwareThreatAnalyzer.calculate_approach_rate(track, center_x, center_y)
@@ -304,18 +216,7 @@ class SwarmAwareThreatAnalyzer:
 
     @staticmethod
     def get_adaptive_lock_bonus(threat_zone, lock_age_frames):
-        """
-        Calculate bonus based on zone and lock age.
-        Higher threat = stronger lock.
-        Long lock = decaying bonus.
-
-        Args:
-            threat_zone: ThreatZone enum
-            lock_age_frames: How many frames target has been locked
-
-        Returns:
-            float: Bonus points (50-200)
-        """
+        # Bonus based on zone and age. Higher threat = stronger lock.
         # Zone-based base bonus
         if threat_zone == ThreatZone.RED:
             base_bonus = config.LOCK_BONUS_RED       # 200
@@ -329,23 +230,8 @@ class SwarmAwareThreatAnalyzer:
 
         return base_bonus * decay_factor
 
-    @staticmethod
     def get_switch_threshold(current_zone, candidate_zone):
-        """
-        Score difference required to switch targets.
-
-        Rules:
-        - Upgrade (to higher threat): Easy (50 points)
-        - Same zone: Medium (30-80 points)
-        - Downgrade (to lower threat): Hard (150 points)
-
-        Args:
-            current_zone: Current target's ThreatZone
-            candidate_zone: Candidate target's ThreatZone
-
-        Returns:
-            float: Minimum score difference
-        """
+        # Score diff required to switch. Upgrade=Easy, Downgrade=Hard.
         # Upgrade
         if candidate_zone < current_zone:  # RED=0 < YELLOW=1 < GREEN=2
             return config.SWITCH_THRESHOLD_UPGRADE  # 50
@@ -362,15 +248,7 @@ class SwarmAwareThreatAnalyzer:
 
     @staticmethod
     def detect_scenario(all_tracks):
-        """
-        Detect tactical scenario (based on CONFIRMED track count).
-
-        Args:
-            all_tracks: List of all tracks
-
-        Returns:
-            TacticalScenario: SINGLE, SMALL_GROUP, MEDIUM_SWARM, or LARGE_SWARM
-        """
+        # Detect tactical scenario based on confirmed tracks.
         confirmed = [t for t in all_tracks if t.state == Track.CONFIRMED]
         count = len(confirmed)
 
@@ -383,22 +261,8 @@ class SwarmAwareThreatAnalyzer:
         else:
             return TacticalScenario.LARGE_SWARM
 
-    @staticmethod
     def detect_swarm_leader(track, all_tracks, swarm_radius=None):
-        """
-        Calculate leadership score (0-1).
-        Most forward + central + fastest = leader.
-
-        Military doctrine: "Kill the leader, swarm disperses"
-
-        Args:
-            track: Track to evaluate
-            all_tracks: All tracks
-            swarm_radius: Swarm detection radius (None = use config)
-
-        Returns:
-            float: Leadership score (0.0 = follower, 1.0 = leader)
-        """
+        # Leader score (0-1). Front + Center + Fast.
         if swarm_radius is None:
             swarm_radius = config.SWARM_DETECTION_RADIUS
 
@@ -452,17 +316,8 @@ class SwarmAwareThreatAnalyzer:
 
         return leadership_score
 
-    @staticmethod
     def get_scenario_weights(scenario):
-        """
-        Optimized weight configuration for scenario.
-
-        Args:
-            scenario: TacticalScenario enum
-
-        Returns:
-            dict: Weight values
-        """
+        # Optimized weights for scenario
         if scenario == TacticalScenario.SINGLE:
             return {
                 'tti': 300.0,
@@ -507,28 +362,8 @@ class SwarmAwareThreatAnalyzer:
                 'trajectory': 50.0
             }
 
-    @staticmethod
     def get_scenario_reassessment_interval(scenario, threat_zone):
-        """
-        Determine re-assessment interval based on scenario and threat zone.
-
-        Base intervals:
-        - SINGLE: 3 seconds (stable, single target)
-        - SMALL_GROUP: 2 seconds (standard)
-        - MEDIUM_SWARM: 1.5 seconds (complex)
-        - LARGE_SWARM: 1 second (chaotic)
-
-        Modifiers:
-        - RED zone: +1 second (more stable in critical engagement)
-        - GREEN zone: -0.5 seconds (more aggressive with low threat)
-
-        Args:
-            scenario: TacticalScenario enum
-            threat_zone: ThreatZone enum
-
-        Returns:
-            int: Frame count
-        """
+        # Interval based on scenario/zone. RED=Stable, GREEN=Aggressive.
         base_intervals = {
             TacticalScenario.SINGLE: config.REASSESS_INTERVAL_SINGLE,        # 90 (3 seconds)
             TacticalScenario.SMALL_GROUP: config.REASSESS_INTERVAL_SMALL,   # 60 (2 seconds)
@@ -540,195 +375,21 @@ class SwarmAwareThreatAnalyzer:
 
         # Zone modifier
         if threat_zone == ThreatZone.RED:
-            return base + 30  # More stable in critical engagement
+            return base + 30  # more stable
         elif threat_zone == ThreatZone.GREEN:
-            return max(base - 15, 30)  # More aggressive with low threat
+            return max(base - 15, 30)  # more aggressive
 
         return base
 
-    @staticmethod
-    def calculate_threat_score(track, all_tracks, is_current_target=False):
-        """
-        DEPRECATED: Old threat scoring function (kept for backward compatibility).
-        Use calculate_advanced_threat_score() instead.
 
-        Calculate threat score.
-        Current target gets MASSIVE lock bonus.
-        """
-        if track.state != Track.CONFIRMED:
-            return 0.0
-        
-        sx, sy = track.kf.x[0], track.kf.x[1]
-        vx, vy = track.kf.x[2], track.kf.x[3]
-        
-        # ====== BASE THREAT ======
-        
-        # 1. DISTANCE SCORE
-        cx_screen = config.FRAME_WIDTH / 2
-        cy_screen = config.FRAME_HEIGHT / 2
-        distance = math.sqrt((sx - cx_screen)**2 + (sy - cy_screen)**2)
-        max_distance = math.sqrt(cx_screen**2 + cy_screen**2)
-        distance_score = SwarmAwareThreatAnalyzer.WEIGHT_DISTANCE * (1.0 - distance / max_distance)
-        
-        # 2. VELOCITY SCORE
-        velocity = math.sqrt(vx**2 + vy**2)
-        velocity_score = SwarmAwareThreatAnalyzer.WEIGHT_VELOCITY * velocity
-        
-        if track.is_aggressive_motion():
-            velocity_score *= 1.5
-        
-        # 3. APPROACH ANGLE SCORE
-        to_center = np.array([cx_screen - sx, cy_screen - sy])
-        velocity_vec = np.array([vx, vy])
-        
-        to_center_norm = np.linalg.norm(to_center)
-        velocity_norm = np.linalg.norm(velocity_vec)
-        
-        if to_center_norm > 1e-6 and velocity_norm > 1e-6:
-            cos_angle = np.dot(velocity_vec, to_center) / (velocity_norm * to_center_norm)
-            approach_factor = max(0, cos_angle)
-        else:
-            approach_factor = 0.0
-        
-        approach_score = SwarmAwareThreatAnalyzer.WEIGHT_APPROACH * approach_factor
-        
-        # 4. CONFIDENCE SCORE
-        confidence_score = SwarmAwareThreatAnalyzer.WEIGHT_CONFIDENCE * min(track.hits / 10.0, 1.0)
-        
-        # ====== PRIMARY LOCK BONUS ======
-        lock_bonus = SwarmAwareThreatAnalyzer.LOCK_BONUS if is_current_target else 0.0
-        
-        # TOTAL
-        total_score = (distance_score + velocity_score + approach_score + 
-                      confidence_score + lock_bonus)
-        
-        # Store nearby count for visualization
-        track.nearby_drone_count = SwarmAwareThreatAnalyzer.count_nearby_drones(
-            track, all_tracks, SwarmAwareThreatAnalyzer.SWARM_DETECTION_RADIUS
-        )
-        
-        return total_score
     
-    @staticmethod
-    def select_active_target(tracks, current_active_id, switch_cooldown_counter, last_locked_pos=None):
-        """
-        PRIMARY LOCK target selection with LOST track support.
-        Key insight from 16-17/11: LOST tracks continue on Kalman prediction!
-        """
-        # Include CONFIRMED and LOST tracks (LOST still has valid Kalman state)
-        valid_tracks = [t for t in tracks if t.state in [Track.CONFIRMED, Track.LOST]]
-        
-        # Prefer CONFIRMED, but LOST is acceptable
-        confirmed_tracks = [t for t in valid_tracks if t.state == Track.CONFIRMED]
-        
-        if len(valid_tracks) == 0:
-            return None, False
-        
-        # Calculate threat scores for all valid tracks
-        for track in valid_tracks:
-            is_current = (track.track_id == current_active_id)
-            track.threat_score = SwarmAwareThreatAnalyzer.calculate_threat_score(
-                track, valid_tracks, is_current_target=is_current
-            )
-        
-        # Sort by threat
-        valid_tracks.sort(key=lambda t: t.threat_score, reverse=True)
-        best_track = valid_tracks[0]
-        
-        # Prefer confirmed track for new selection
-        if confirmed_tracks:
-            confirmed_tracks.sort(key=lambda t: t.threat_score, reverse=True)
-            best_confirmed = confirmed_tracks[0]
-        else:
-            best_confirmed = best_track
-        
-        # ============ INITIAL TARGET SELECTION ============
-        if current_active_id is None:
-            target = best_confirmed
-            close_str = " [CLOSE]" if SwarmAwareThreatAnalyzer.is_close_range(target) else ""
-            print(f"[TARGET] PRIMARY LOCK → #{target.track_id}{close_str} (threat:{target.threat_score:.0f})")
-            return target, True
-        
-        # ============ FIND CURRENT TARGET ============
-        current_track = next((t for t in valid_tracks if t.track_id == current_active_id), None)
-        
-        # ============ EMERGENCY: Target Completely Gone ============
-        # ============ EMERGENCY: Target Completely Gone ============
-        if current_track is None:
-            # SPATIAL LOCK CHECK:
-            # Before jumping to global best, check if there is a successor at the last known position
-            if last_locked_pos is not None:
-                lx, ly = last_locked_pos
-                best_successor = None
-                min_dist = SwarmAwareThreatAnalyzer.SUCCESSOR_SEARCH_RADIUS
-                
-                for t in valid_tracks:
-                    tx, ty = t.kf.x[0], t.kf.x[1]
-                    dist = math.sqrt((tx - lx)**2 + (ty - ly)**2)
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_successor = t
-                
-                if best_successor:
-                    print(f"[TARGET] SPATIAL LOCK: Found successor #{best_successor.track_id} at dist {min_dist:.1f}px")
-                    return best_successor, True
-            
-            print(f"[TARGET] LOCK BROKEN: #{current_active_id} deleted → #{best_confirmed.track_id}")
-            return best_confirmed, True
-        
-        # ============ Target is LOST but still has valid Kalman ============
-        if current_track.state == Track.LOST:
-            # Check if target was stationary (low speed history)
-            avg_speed = current_track.get_average_speed()
-            
-            if avg_speed < 5.0:
-                # STATIONARY TARGET: Wait much longer (3 sec)
-                timeout = 90
-            else:
-                # MOVING TARGET: Standard timeout (1.5 sec)
-                timeout = 45
-            
-            if current_track.time_since_update > timeout:
-                print(f"[TARGET] LOCK TIMEOUT: #{current_active_id} lost {current_track.time_since_update}f → #{best_confirmed.track_id}")
-                return best_confirmed, True
-            
-            # Otherwise keep tracking on prediction
-            return current_track, False
-        
-        # ============ EMERGENCY: Target Escaped Screen ============
-        if not SwarmAwareThreatAnalyzer.is_on_screen(current_track, margin=50):
-            print(f"[TARGET] LOCK BROKEN: #{current_active_id} off-screen → #{best_confirmed.track_id}")
-            return best_confirmed, True
-        
-        # ============ MAINTAIN LOCK ============
-        return current_track, False
+
 
     @staticmethod
     def calculate_advanced_threat_score(track, all_tracks, scenario,
                                        is_current_target, lock_age_frames):
-        """
-        Military-grade comprehensive threat score.
-
-        Components:
-        1. Time-To-Impact (300 max)
-        2. Distance (100 max)
-        3. Velocity (30 max)
-        4. Approach Rate (110 max)
-        5. Trajectory Prediction (50 max)
-        6. Swarm Leader (200 max)
-        7. Confidence (10 max)
-        8. Lock Bonus (50-200)
-
-        Args:
-            track: Track to evaluate
-            all_tracks: List of all tracks
-            scenario: TacticalScenario enum
-            is_current_target: Is this track the current target?
-            lock_age_frames: How many frames target has been locked (only for current target)
-
-        Returns:
-            float: Total threat score
-        """
+        # Comprehensive threat score setup.
+        # Components: TTI, Dist, Vel, Appr, Traj, Leader, Conf, LockBonus.
         if track.state not in [Track.CONFIRMED, Track.LOST]:
             return 0.0
 
@@ -816,37 +477,8 @@ class SwarmAwareThreatAnalyzer:
     @staticmethod
     def dynamic_reassessment(current_track, all_tracks, frame_count,
                             reassess_timer, scenario, lock_age_frames):
-        """
-        Dynamic target re-assessment.
+        # Dynamic target re-assessment (Periodic, Zone-aware, Adaptive).
 
-        This function replaces select_active_target().
-
-        Key differences:
-        1. Periodic re-assessment (timer based)
-        2. Zone-aware switching thresholds
-        3. Scenario adaptive weights
-        4. Adaptive lock bonus
-
-        Args:
-            current_track: Currently tracked target (Track or None)
-            all_tracks: List of all tracks
-            frame_count: Current frame number
-            reassess_timer: ReAssessmentTimer instance
-            scenario: TacticalScenario enum
-            lock_age_frames: How many frames target has been locked
-
-        Returns:
-            tuple: (selected_track, switched)
-        """
-        # Feature flag check
-        if not config.DYNAMIC_REASSESSMENT_ENABLED:
-            # Fallback to old system
-            return SwarmAwareThreatAnalyzer.select_active_target(
-                all_tracks,
-                current_track.track_id if current_track else None,
-                0,  # switch_cooldown_counter not used in new system
-                (current_track.kf.x[0], current_track.kf.x[1]) if current_track else None
-            )
 
         # Time to re-assess?
         if not reassess_timer.should_reassess(frame_count, current_track, scenario):
@@ -855,7 +487,8 @@ class SwarmAwareThreatAnalyzer:
 
         # === RE-ASSESSMENT TRIGGERED ===
 
-        print(f"[REASSESS] Frame {frame_count}: Evaluating {len(all_tracks)} candidates")
+        # I'm using debug logging here to avoid spamming the console
+        logger.debug(f"[REASSESS] Frame {frame_count}: Evaluating {len(all_tracks)} candidates")
 
         # Valid tracks (CONFIRMED or LOST)
         valid_tracks = [t for t in all_tracks if t.state in [Track.CONFIRMED, Track.LOST]]
@@ -889,7 +522,8 @@ class SwarmAwareThreatAnalyzer:
 
         # === INITIAL TARGET SELECTION (no current target) ===
         if current_track is None:
-            print(f"[REASSESS] Initial lock: #{best_track.track_id} "
+            # I'm using debug logging here to avoid spamming the console
+            logger.debug(f"[REASSESS] Initial lock: #{best_track.track_id} "
                   f"(zone:{best_zone.name}, score:{best_score:.0f})")
             return best_track, True
 
@@ -898,7 +532,7 @@ class SwarmAwareThreatAnalyzer:
 
         if current_entry is None:
             # Current target lost/deleted (EMERGENCY)
-            print(f"[REASSESS] EMERGENCY: Target lost, switching to #{best_track.track_id}")
+            logger.info(f"[REASSESS] EMERGENCY: Target lost, switching to #{best_track.track_id}")
             reassess_timer.force_next_frame()  # Check again immediately
             return best_track, True
 
@@ -911,8 +545,8 @@ class SwarmAwareThreatAnalyzer:
         # Decision
         if score_diff > threshold:
             # SWITCH
-            print(f"[REASSESS] SWITCH: "
-                  f"#{current_track.track_id} (zone:{current_zone.name}, score:{current_score:.0f}) → "
+            logger.info(f"[REASSESS] SWITCH: "
+                  f"#{current_track.track_id} (zone:{current_zone.name}, score:{current_score:.0f}) -> "
                   f"#{best_track.track_id} (zone:{best_zone.name}, score:{best_score:.0f}) "
                   f"[diff:{score_diff:.0f} > thresh:{threshold:.0f}]")
             return best_track, True
@@ -920,16 +554,13 @@ class SwarmAwareThreatAnalyzer:
             # MAINTAIN LOCK
             if score_diff > threshold * 0.7:
                 # Close decision - log for analysis
-                print(f"[REASSESS] MAINTAIN: #{current_track.track_id} "
+                logger.info(f"[REASSESS] MAINTAIN: #{current_track.track_id} "
                       f"(diff:{score_diff:.0f} < thresh:{threshold:.0f})")
             return current_track, False
 
     @staticmethod
     def get_lock_status(current_track, all_tracks):
-        """
-        Get detailed lock status for HUD display.
-        Returns dict with lock info.
-        """
+        # Get detailed lock status for HUD.
         if current_track is None:
             return {
                 'locked': False,
