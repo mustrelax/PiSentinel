@@ -1,0 +1,26 @@
+# PiSentinel edge-node Python dependencies
+# Install with: pip install -r requirements.txt
+
+# --- Detection / inference ---
+ncnn
+ultralytics
+torch
+
+# --- Vision / math / tracking ---
+numpy
+opencv-python
+scipy
+filterpy
+simple-pid
+
+# --- Streaming / networking ---
+aiortc
+av
+python-socketio
+requests
+
+# --- Raspberry Pi pan-tilt hardware (real_camera mode only) ---
+# Not needed on a development PC running --mode simulation
+Adafruit-Blinka
+adafruit-circuitpython-pca9685
+adafruit-circuitpython-motor

@@ -1,0 +1,1151 @@
+:root {
+  --bg-color: #121212;
+  --surface-color: #1e1e1e;
+  --border-color: #333;
+  --primary-color: #007bff;
+  --text-color: #e0e0e0;
+  --danger-color: #dc3545;
+  --success-color: #28a745;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Login Page --- */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+
+.login-card {
+  background: var(--surface-color);
+  padding: 2rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  width: 300px;
+  text-align: center;
+}
+
+.login-card h2 {
+  margin-top: 0;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 0.5rem;
+  background: #2a2a2a;
+  border: 1px solid var(--border-color);
+  color: white;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+button.primary-btn {
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  width: 100%;
+  transition: background 0.2s;
+}
+
+button.primary-btn:hover {
+  background: #0056b3;
+}
+
+button.primary-btn:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+.error-msg {
+  color: var(--danger-color);
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  display: none;
+}
+
+/* --- Main App Layout --- */
+.app-container {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 220px;
+  background: var(--surface-color);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.sidebar .brand {
+  /* margin-bottom: 25px; Removed to let logo control margins if needed, but keeping generally safe */
+  margin-bottom: 20px;
+  text-align: center;
+  /* Center the logo */
+}
+
+.brand-logo {
+  max-width: 100%;
+  height: auto;
+  max-height: 80px;
+  /* Constrain height so it doesn't take up too much vertical space */
+  display: block;
+  margin: 0 auto;
+}
+
+/* Sidebar Controls Section */
+.sidebar-section {
+  margin-bottom: 20px;
+}
+
+.sidebar-section label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.sidebar-select {
+  width: 100%;
+  padding: 8px;
+  background: #2a2a2a;
+  color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.sidebar-btn {
+  width: 100%;
+  padding: 8px;
+  background: #333;
+  color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sidebar-btn:hover {
+  background: #444;
+}
+
+.sidebar-panel {
+  background: #252525;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: auto;
+  /* Push to bottom */
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.stat-item:last-child {
+  margin-bottom: 0;
+}
+
+.stat-value {
+  color: #fff;
+  font-weight: bold;
+}
+
+/* Alert List */
+.alert-section {
+  margin-top: 20px;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.alert-list {
+  flex: 1;
+  overflow-y: auto;
+  background: #1a1a1a;
+  border-radius: 4px;
+  padding: 8px;
+  max-height: 200px;
+}
+
+.alert-item {
+  background: #3a1a1a;
+  border-left: 3px solid #dc3545;
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 2px;
+  font-size: 0.8rem;
+}
+
+.alert-item .alert-device {
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+.alert-device-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #fff;
+  font-weight: bold;
+  font-size: 0.7rem;
+  letter-spacing: 0.3px;
+}
+
+.alert-item .alert-time {
+  color: #888;
+  font-size: 0.7rem;
+}
+
+.alert-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: bold;
+  margin-left: 8px;
+  text-transform: uppercase;
+}
+
+/* LOCKED = red, actively tracking (primary target) */
+.alert-badge.locked {
+  background: #dc3545;
+  color: #fff;
+}
+
+/* PASSIVE = green, confirmed but not primary target */
+.alert-badge.passive {
+  background: #28a745;
+  color: #fff;
+}
+
+/* LOST = grey */
+.alert-badge.lost {
+  background: #6c757d;
+  color: #fff;
+}
+
+/* Legacy ACTIVE = red (same as LOCKED - for track logs) */
+.alert-badge.active {
+  background: #dc3545;
+  color: #fff;
+}
+
+.alert-badge.searching {
+  background: #ffc107;
+  color: #000;
+}
+
+/* FALSE? = orange warning for possible false detection */
+.alert-badge.false {
+  background: #fd7e14;
+  color: #fff;
+}
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Grid Area */
+.video-grid {
+  flex: 1;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  background: #000;
+  overflow: hidden;
+}
+
+/* Grid Layouts - Explicit rows and columns */
+.grid-2x2 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+
+.grid-3x3 {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+}
+
+.grid-4x4 {
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+}
+
+/* Slots */
+.video-slot {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+}
+
+.video-slot:hover {
+  border-color: var(--primary-color);
+}
+
+.video-slot.tracking-active {
+  border: 3px solid #dc3545;
+  box-shadow: 0 0 15px rgba(220, 53, 69, 0.5);
+  animation: pulse-border 1.5s infinite;
+}
+
+@keyframes pulse-border {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(220, 53, 69, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 25px rgba(220, 53, 69, 0.8);
+  }
+}
+
+/* Recording indicator */
+.video-slot.recording::before {
+  content: '⚫ REC';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(220, 53, 69, 0.9);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  z-index: 100;
+  animation: blink-rec 1s infinite;
+}
+
+@keyframes blink-rec {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.video-slot.empty::after {
+  content: "No Signal";
+  color: #444;
+  font-weight: bold;
+  font-size: 1.2rem;
+}
+
+.video-slot video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* Preserve aspect ratio exactly, or cover if we want full fill */
+  background: #000;
+  display: none;
+  pointer-events: none;
+  /* Let click pass to slot */
+}
+
+.video-slot.active video {
+  display: block;
+}
+
+.video-slot.active::after {
+  display: none;
+}
+
+.overlay-name {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  pointer-events: none;
+  display: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-slot.active .overlay-name {
+  display: block;
+}
+
+/* Maximized View (Modal) */
+.maximized-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 1000;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+.maximized-overlay.open {
+  display: flex;
+}
+
+.maximized-video-container {
+  width: 80%;
+  height: 80%;
+  background: #000;
+  border: 1px solid #444;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.maximized-video-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.close-modal {
+  margin-top: 15px;
+  padding: 10px 20px;
+  background: #333;
+  color: #fff;
+  border: 1px solid #555;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.close-modal:hover {
+  background: #444;
+}
+
+/* Log Area */
+.log-area {
+  height: 60px;
+  background: #0d0d0d;
+  color: #777;
+  font-family: monospace;
+  font-size: 0.7rem;
+  padding: 5px 10px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Track Log Section */
+.track-log-section {
+  margin-top: 15px;
+  flex: 0 0 auto;
+  max-height: 200px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.track-log-section label .badge {
+  background: var(--primary-color);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  margin-left: 5px;
+}
+
+.track-log-list {
+  flex: 1;
+  overflow-y: auto;
+  background: #1a1a1a;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.track-log-card {
+  background: #1a2a3a;
+  border-left: 3px solid var(--primary-color);
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.track-log-card .log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.track-log-card .log-device {
+  color: #6bb5ff;
+  font-weight: bold;
+}
+
+.track-log-card .log-duration {
+  color: #aaa;
+  font-size: 0.75rem;
+}
+
+.track-log-card .log-time {
+  color: #666;
+  font-size: 0.7rem;
+  margin-bottom: 6px;
+}
+
+.track-log-card .log-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.track-log-card .stat {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+}
+
+.track-log-card .stat-label {
+  color: #888;
+}
+
+.track-log-card .stat-value {
+  color: #fff;
+  font-weight: bold;
+}
+
+.direction-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  background: linear-gradient(135deg, #2a5a9a, #1a3a6a);
+  color: #6bb5ff;
+}
+
+.direction-badge .arrow {
+  color: #888;
+  margin: 0 4px;
+}
+
+.zone-timeline {
+  display: flex;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.zone-timeline .zone {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: bold;
+}
+
+.zone-timeline .zone.red {
+  background: #dc3545;
+  color: #fff;
+}
+
+.zone-timeline .zone.yellow {
+  background: #ffc107;
+  color: #000;
+}
+
+.zone-timeline .zone.green {
+  background: #28a745;
+  color: #fff;
+}
+
+/* Track Logs Button */
+.track-logs-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #2a5a9a, #1a3a6a) !important;
+  border: 1px solid #3a6aaa !important;
+  transition: all 0.2s;
+}
+
+.track-logs-btn:hover {
+  background: linear-gradient(135deg, #3a6aaa, #2a5a9a) !important;
+  transform: translateY(-1px);
+}
+
+.track-logs-btn .badge {
+  background: #dc3545;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+}
+
+/* Track Logs Modal */
+.track-logs-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2000;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.track-logs-modal.open {
+  display: flex;
+}
+
+.track-logs-modal-content {
+  background: var(--surface-color);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--primary-color);
+}
+
+.close-modal-btn {
+  background: none;
+  border: none;
+  font-size: 1.8rem;
+  color: #888;
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+.close-modal-btn:hover {
+  color: #fff;
+}
+
+.modal-info {
+  padding: 12px 20px;
+  background: rgba(0, 123, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.modal-info p {
+  margin: 5px 0;
+}
+
+.modal-info strong {
+  color: #fff;
+}
+
+.track-log-modal-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Expandable cards in modal */
+.track-log-modal-list .track-log-card {
+  background: #1a2a3a;
+  border-left: 4px solid var(--primary-color);
+  padding: 15px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.track-log-modal-list .track-log-card:hover {
+  background: #223344;
+}
+
+.track-log-modal-list .track-log-card.expanded {
+  border-left-color: var(--success-color);
+}
+
+.track-log-card .log-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.track-log-card .expand-icon {
+  margin-left: auto;
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.track-log-card .log-summary {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 8px;
+}
+
+.track-log-card .direction-badge {
+  background: linear-gradient(135deg, #2a5a9a, #1a3a6a);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  color: #6bb5ff;
+}
+
+.track-log-card .log-time {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.track-log-card .log-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+}
+
+.track-log-card .detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.track-log-card .detail-row span:first-child {
+  color: #888;
+}
+
+.track-log-card .detail-row span:last-child {
+  color: #fff;
+  font-weight: 500;
+}
+
+/* Video button in track log cards */
+.video-btn {
+  background: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  margin-left: 6px;
+  transition: background 0.2s;
+}
+
+.video-btn:hover {
+  background: #c82333;
+}
+
+.video-play-btn {
+  background: linear-gradient(135deg, #dc3545, #c82333);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.video-play-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
+}
+
+/* Video modal */
+.video-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2000;
+  justify-content: center;
+  align-items: center;
+}
+
+.video-modal-content {
+  background: #1a1a2e;
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 90%;
+  max-height: 90%;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+.video-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.video-modal-close:hover {
+  opacity: 1;
+}
+
+.video-modal-title {
+  margin: 0 0 15px 0;
+  color: #fff;
+  font-size: 1.1rem;
+}
+
+#video-player {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 8px;
+  background: #000;
+}
+
+.video-path {
+  margin: 10px 0 0 0;
+  color: #888;
+  font-size: 0.8rem;
+}
+
+/* --- Minimap (sidebar section, between alerts and track logs) --- */
+.minimap-section {
+  flex: 0 0 auto;
+}
+
+.minimap-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.minimap-section-label {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.minimap-panel {
+  width: 100%;
+  height: 180px;
+  background: #0a0a0a;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.minimap-panel:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 8px rgba(0, 123, 255, 0.3);
+}
+
+.minimap-expand-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: #aaa;
+  cursor: pointer;
+  padding: 1px 6px;
+  font-size: 0.8rem;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.minimap-expand-btn:hover {
+  color: #fff;
+  border-color: var(--primary-color);
+}
+
+.minimap-canvas {
+  width: 100%;
+  height: 100%;
+  background: #0a0a0a;
+  display: block;
+}
+
+/* --- Minimap Expanded Modal --- */
+.minimap-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2100;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.minimap-modal.open {
+  display: flex;
+}
+
+.minimap-modal-content {
+  background: var(--surface-color);
+  border-radius: 12px;
+  width: 90%;
+  height: 85vh;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.minimap-modal-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.minimap-modal-canvas {
+  flex: 1;
+  background: #0a0a0a;
+  display: block;
+  cursor: grab;
+}
+
+.minimap-modal-canvas:active {
+  cursor: grabbing;
+}
+
+.minimap-readout {
+  width: 320px;
+  flex-shrink: 0;
+  background: #181818;
+  border-left: 1px solid var(--border-color);
+  padding: 12px;
+  overflow-y: auto;
+  font-size: 0.75rem;
+  color: #ccc;
+  font-family: monospace;
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.minimap-readout .readout-empty {
+  color: #666;
+  font-style: italic;
+  text-align: center;
+  margin-top: 20px;
+}
+
+.minimap-readout .readout-card {
+  background: #222;
+  border-left: 3px solid var(--primary-color);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+.minimap-readout .readout-card .readout-title {
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.minimap-readout .readout-card .readout-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  color: #aaa;
+}
+
+.minimap-readout .readout-card .readout-row span:last-child {
+  color: #fff;
+  font-family: monospace;
+}
+
+.minimap-readout .readout-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Per-tile Sensor Health: small "i" chip with a hover popover.
+   Each .video-slot.active gets a .health-info-wrap pinned at top-right. */
+.health-info-wrap {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 5;
+}
+.health-info-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.5);
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: help;
+  padding: 0;
+  line-height: 18px;
+  text-align: center;
+  backdrop-filter: blur(2px);
+  transition: background 120ms ease;
+}
+.health-info-btn:hover { background: rgba(0,0,0,0.85); }
+
+.health-pill {
+  display: inline-block;
+  min-width: 30px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.5px;
+  background: rgba(0,0,0,0.55);
+  color: #aaa;
+  border: 1px solid rgba(255,255,255,0.18);
+}
+.health-pill.green  { background: #34c759; color: #082;    border-color: transparent; }
+.health-pill.yellow { background: #ffd23a; color: #6a4500; border-color: transparent; }
+.health-pill.red    { background: #ff3b30; color: #fff;    border-color: transparent; }
+
+/* Popover — hidden by default, shown when the wrap (chip + pill) is hovered.
+   Positioned just below the chip and anchored to the tile's top-right corner. */
+.health-popover {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  min-width: 220px;
+  background: rgba(20,20,22,0.97);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  color: #ddd;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 10;
+}
+.health-info-wrap:hover .health-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.health-popover-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.health-popover-name {
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+.health-popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.health-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.health-kv > span:first-child { color: #888; }
+.health-kv > span:last-child  { color: #fff; }
+.health-empty {
+  font-size: 0.78rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* Ensure tiles establish a positioning context for the absolute info chip. */
+.video-slot { position: relative; }

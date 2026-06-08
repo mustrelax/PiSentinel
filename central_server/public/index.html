@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PiSentinel Command Center</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <div class="app-container">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/pisentinellogo.png" alt="PiSentinel Command Center" class="brand-logo">
+      </div>
+
+      <!-- Grid Controls -->
+      <div class="sidebar-section">
+        <label>Grid View</label>
+        <select id="grid-select" class="sidebar-select">
+          <option value="2">2x2</option>
+          <option value="3">3x3</option>
+          <option value="4">4x4</option>
+        </select>
+        <button id="reconnect-btn" class="sidebar-btn">Refresh</button>
+      </div>
+
+      <div class="sidebar-panel">
+        <div class="stat-item">
+          <span>Status</span>
+          <span id="connection-status" class="status-indicator">...</span>
+        </div>
+        <div class="stat-item">
+          <span>Viewers</span>
+          <span id="viewer-count" class="stat-value">0</span>
+        </div>
+      </div>
+
+      <!-- Alert Area -->
+      <div class="sidebar-section alert-section">
+        <label>Alerts</label>
+        <div id="alert-list" class="alert-list">
+          <!-- Alerts will appear here -->
+        </div>
+      </div>
+
+      <!-- Minimap (between alerts and track logs) -->
+      <div class="sidebar-section minimap-section">
+        <div class="minimap-section-header">
+          <span class="minimap-section-label">ENU Map</span>
+          <button id="minimap-expand-btn" class="minimap-expand-btn" title="Expand">⤢</button>
+        </div>
+        <div id="minimap-panel" class="minimap-panel" title="Click to expand">
+          <canvas id="minimap-canvas" class="minimap-canvas"></canvas>
+        </div>
+      </div>
+
+      <!-- Track Logs Button -->
+      <div class="sidebar-section">
+        <button id="track-logs-btn" class="sidebar-btn track-logs-btn">
+          Track Logs <span class="badge" id="log-count">0</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content (Grid Only) -->
+    <section class="main-content">
+      <div id="video-grid" class="video-grid grid-2x2">
+        <!-- JS injects slots here -->
+      </div>
+      <div class="log-area" id="log-area"></div>
+    </section>
+  </div>
+
+  <!-- Maximized Video View Modal -->
+  <div id="modal-overlay" class="maximized-overlay">
+    <div class="maximized-video-container">
+      <video id="max-video" autoplay playsinline muted></video>
+    </div>
+    <button id="close-modal" class="close-modal">Close View</button>
+  </div>
+
+  <!-- Track Logs Modal -->
+  <div id="track-logs-modal" class="track-logs-modal">
+    <div class="track-logs-modal-content">
+      <div class="modal-header">
+        <h2>Track Logs</h2>
+        <button id="close-logs-modal" class="close-modal-btn">&times;</button>
+      </div>
+      <div id="track-log-modal-list" class="track-log-modal-list">
+        <!-- Track logs will appear here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Minimap Expanded Modal -->
+  <div id="minimap-modal" class="minimap-modal">
+    <div class="minimap-modal-content">
+      <div class="modal-header">
+        <h2>Geolocation Map (ENU)</h2>
+        <button id="minimap-modal-close" class="close-modal-btn">&times;</button>
+      </div>
+      <div class="minimap-modal-body">
+        <canvas id="minimap-modal-canvas" class="minimap-modal-canvas"></canvas>
+        <div id="minimap-readout" class="minimap-readout">
+          <div class="readout-empty">No active tracks.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Libraries -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Main logic -->
+  <script type="module" src="client.js"></script>
+
+</body>
+
+</html>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Login - PiSentinel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <h2>PiSentinel</h2>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit" class="primary-btn">Sign In</button>
+        <div id="error" class="error-msg">Invalid credentials</div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const err = document.getElementById('error');
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      err.style.display = 'none';
+
+      const u = document.getElementById('username').value;
+      const p = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          window.location.href = data.redirect || '/';
+        } else {
+          err.textContent = data.error || 'Login failed';
+          err.style.display = 'block';
+        }
+      } catch (e) {
+        err.textContent = 'Connection error';
+        err.style.display = 'block';
+      }
+    };
+  </script>
+</body>
+
+</html>

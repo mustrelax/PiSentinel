@@ -1,0 +1,99 @@
+import threading
+import time
+import datetime
+import cv2
+
+import logging
+from webrtc_utils import FrameSource
+from tracking import TrackingController
+from io_devices import BaseInputSource, ServoController, SimulationCommander
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+class TrackingThread(threading.Thread):
+
+    def __init__(self, 
+                 frame_source: FrameSource,
+                 input_device: BaseInputSource,
+                 servo_controller: ServoController,
+                 tracker: TrackingController,
+                 stop_event: threading.Event,
+                 sim_commander: SimulationCommander | None = None):
+        
+        super().__init__(daemon=True, name="TrackingThread")
+        self.frame_source = frame_source
+        self.input_device = input_device
+        self.servo_controller = servo_controller
+        self.tracker = tracker
+        self.stop_event = stop_event
+        self.sim_commander = sim_commander
+        
+    def run(self):
+        logger.info("Tracking thread started.")
+        self.last_loop_time = time.perf_counter()
+        self.smoothed_fps = 30.0  # EMA-smoothed FPS
+        try:
+            while not self.stop_event.is_set():
+
+                # 1. Read from input device
+                t_capture_start = time.perf_counter()
+                ret, frame = self.input_device.read()
+                t_capture_end = time.perf_counter()
+
+                if not ret or frame is None:
+                    time.sleep(0.01)
+                    continue
+
+                capture_ms = (t_capture_end - t_capture_start) * 1000.0
+
+                # Calculate True FPS (EMA-smoothed cycle time)
+                t_now = time.perf_counter()
+                dt = t_now - self.last_loop_time
+                self.last_loop_time = t_now
+
+                instant_fps = 1.0 / max(1e-6, dt)
+                self.smoothed_fps = 0.1 * instant_fps + 0.9 * self.smoothed_fps
+
+                annotated_frame, pan, tilt = self.tracker.process_frame(frame)
+
+                self.servo_controller.set_angles(pan, tilt)
+                if self.sim_commander:
+                    self.sim_commander.send_command(pan, tilt)
+
+                t_stream_start = time.perf_counter()
+                self.frame_source.set(annotated_frame)
+                t_stream_end = time.perf_counter()
+
+                encode_ms = (t_stream_end - t_stream_start) * 1000.0
+
+                # --- LATENCY PROFILING ---
+                # Log only every 30 frames (approx 1 sec)
+                if self.tracker.frame_count % 30 == 0:
+                    track_ms = self.tracker.last_track_ms
+                    draw_ms = self.tracker.last_draw_ms
+                    stream_total_ms = draw_ms + encode_ms
+
+                    # Show inference time or (skip) based on whether YOLO ran this frame
+                    if self.tracker.inference_ran:
+                        inf_str = f"{self.tracker.last_inference_ms:.1f}ms"
+                        total_latency = capture_ms + self.tracker.last_inference_ms + track_ms + stream_total_ms
+                    else:
+                        inf_str = "(skip)"
+                        total_latency = capture_ms + track_ms + stream_total_ms
+
+                    logger.info(f"[LATENCY] Capture: {capture_ms:.1f}ms | Inference: {inf_str} | "
+                              f"Tracker: {track_ms:.1f}ms | Stream: {stream_total_ms:.1f}ms | "
+                              f"Total: {total_latency:.1f}ms ({self.smoothed_fps:.1f} FPS)")
+        
+        except Exception as e:
+            logger.error(f"FATAL ERROR in tracking thread: {e}", exc_info=True)
+        finally:
+            # --- Cleanup ---
+            logger.info("Tracking thread stopping. Cleaning up resources...")
+            self.input_device.cleanup()
+            self.servo_controller.cleanup()
+            if self.sim_commander:
+                self.sim_commander.cleanup()
+            cv2.destroyAllWindows()
+            logger.info("Tracking thread terminated.")
