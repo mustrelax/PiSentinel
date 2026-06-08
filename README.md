@@ -137,20 +137,77 @@ stream and telemetry appear on the dashboard.
 
 ---
 
-## Dual-node simulation
+## UE5 simulation (digital twin)
 
-To develop and test multi-node fusion from a single Unreal Engine instance, a single
-1920×1080 split-screen capture is divided in half: the left half feeds node 1, the right
-half feeds node 2. Both nodes run identical code; only two config values differ:
+The system can be developed and tested without physical hardware against an Unreal Engine
+5.5 digital twin. A virtual pan-tilt camera actor mirrors the real servo angles in real
+time (received over UDP), and its rendered view is fed back to the edge node through an
+HDMI/USB capture card.
 
-```python
-SIM_DUAL_MODE   = True
-SIM_CAPTURE_SIDE = "left"   # "left" => Sentinel-01,  "right" => Sentinel-02
+```
+  edge node (main.py --mode simulation)
+        │  pan/tilt angles, raw UDP string e.g. "45.5,30.2"   ┌────────────────────────┐
+        ├───────────────────────────────────────────────────▶│ UE5: BP_PanTilt_Kamera  │
+        │                  (SIM_PC_IP : SIM_CMD_PORT)         │ rotates virtual camera  │
+        │  rendered view  ◀──────── HDMI/USB capture card ◀───┴────────────────────────┘
+        ▼
+  detection + tracking + control loop
 ```
 
-Give each node a distinct `DEVICE_NAME`, `SYSTEM_POSITION_ENU` and
-`CAMERA_FACING_DIRECTION`, point both at the same `CENTRAL_SERVER_URL`, and the server
-fuses their reports into a single world-frame track.
+### UE5-side setup
+- **Unreal Engine 5.5**.
+- **SocketIOClient-Unreal** plugin (https://github.com/getnamo/SocketIOClient-Unreal) —
+  the `BP_PanTilt_Kamera` actor parses the UDP pan/tilt string in its `Event Tick` and
+  applies it to the camera Rotator. (Angles are pre-corrected as `90 − angle` on the
+  sender so they can be applied directly.)
+- **Landscapes Pack** (DigitalTris, Fab) for the terrain/lighting. This is a **paid asset
+  — do not redistribute it** in a public repo; add it from your own Fab library.
+- One **HDMI/USB capture card** per simulated node feeds the rendered frame to the edge
+  node.
+
+Run the edge node in simulation mode:
+```bash
+python main.py --mode simulation
+```
+
+### Simulation settings (`config.py`)
+| Setting | Default | Meaning |
+|---|---|---|
+| `SIM_PC_IP` | `192.168.1.101` | IP of the PC running UE5 (where UDP packets are sent) |
+| `SIM_CMD_PORT` | `9999` | UDP port the UE5 blueprint listens on for pan/tilt angles |
+| `SIM_VIDEO_PORT` | `9998` | Secondary UDP port (reserved for video-side signalling) |
+| `SIM_CAPTURE_INDEX` | `0` | OpenCV index of this node's HDMI/USB capture card |
+| `SIM_KNOWN_WIDTH_CM` | `260.0` | Empirical constant for range estimation (absorbs UE5 mesh size + FOV + capture focal effect). **Calibrate:** put one drone 100 m north of node 1, read the reported range, then `SIM_KNOWN_WIDTH_CM *= 100 / reported`. |
+| `LATENCY_COMPENSATION_ENABLED` | `True` | Enable in sim (HDMI capture adds delay); disable for the real camera |
+| `LATENCY_COMPENSATION_MS` | `200` | Estimated capture-card + pipeline delay (ms) |
+
+### Dual-node (split-screen)
+One 1920×1080 split-screen render is divided in half: left → node 1, right → node 2. Both
+nodes run identical code; only these differ per node:
+
+| Setting | Node 1 | Node 2 |
+|---|---|---|
+| `SIM_DUAL_MODE` | `True` | `True` |
+| `SIM_CAPTURE_SIDE` | `"left"` | `"right"` |
+| `DEVICE_NAME` | `"Sentinel-01"` | `"Sentinel-02"` |
+
+In UE5: place **two** pan-tilt camera actors, each with its own UDP listener on a
+different port; output 1920×1080 split-screen; route each half to a separate capture card.
+
+### ENU / geolocation (world frame) — set per node
+The fusion uses a shared local East-North-Up (ENU) frame. Each node must know **where it
+is** and **which way it faces**:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SYSTEM_POSITION_ENU` | `{"x":0.0,"y":0.0,"z":2.5}` | This node's position in the ENU frame (meters). Origin is the shared reference point (usually node 1). Give node 2 its real offset, e.g. `{"x":54.0,"y":0.0,"z":2.5}` for ~54 m east. |
+| `CAMERA_FACING_DIRECTION` | `310` | Compass bearing the camera mount faces (0 = North, 90 = East, 180 = South, 270 = West). Must match the actor's heading in UE5. |
+| `GEOLOC_DIST_UNCERTAINTY` | `0.10` | Range uncertainty σ_r as a fraction of range (10 %) |
+| `GEOLOC_BEARING_UNCERTAINTY_DEG` | `1.0` | Bearing uncertainty σ_b in degrees |
+| `GEOLOC_MIN_UNCERTAINTY_M` | `2.0` | Floor on uncertainty (meters) so close targets still show a circle |
+
+Point both nodes at the same `CENTRAL_SERVER_URL`, and the server fuses their reports into
+a single world-frame track.
 
 ---
 
