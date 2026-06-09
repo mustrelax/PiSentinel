@@ -154,8 +154,8 @@ HDMI/USB capture card.
   detection + tracking + control loop
 ```
 
-> The full **Unreal Engine 5.5** project (~8 GB) is hosted outside this repository.
-> [**Download the UE5 project**](https://www.google.com)
+> The full **Unreal Engine 5.5** project (~6 GB) is hosted outside this repository.
+> [**Download the UE5 project**](https://drive.google.com/file/d/1Mg_ktoVmQcpzYJ01UG4jg2hHnxZINLYP/view?usp=sharing)
 
 ### UE5-side setup
 - **Unreal Engine 5.5**.
