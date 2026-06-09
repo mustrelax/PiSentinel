@@ -154,14 +154,17 @@ HDMI/USB capture card.
   detection + tracking + control loop
 ```
 
+> The full **Unreal Engine 5.5** project (~8 GB) is hosted outside this repository.
+> [**Download the UE5 project**](https://www.google.com)
+
 ### UE5-side setup
 - **Unreal Engine 5.5**.
 - **SocketIOClient-Unreal** plugin (https://github.com/getnamo/SocketIOClient-Unreal) —
   the `BP_PanTilt_Kamera` actor parses the UDP pan/tilt string in its `Event Tick` and
   applies it to the camera Rotator. (Angles are pre-corrected as `90 − angle` on the
   sender so they can be applied directly.)
-- **Landscapes Pack** (DigitalTris, Fab) for the terrain/lighting. This is a **paid asset
-  — do not redistribute it** in a public repo; add it from your own Fab library.
+- **Landscapes Pack** (DigitalTris) for the terrain/lighting — a free asset available on
+  Fab; install it into the project from there.
 - One **HDMI/USB capture card** per simulated node feeds the rendered frame to the edge
   node.
 
