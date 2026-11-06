@@ -1,0 +1,18 @@
+{
+ "source": "Ultralytics validation outputs of run pisentinelv3n320_p2 (confusion_matrix.png, BoxPR_curve.png, results.csv); confusion matrix at conf=0.25, IoU=0.45 (Ultralytics defaults)",
+ "final_epoch_metrics_all_classes": {"precision": 0.91735, "recall": 0.88521, "mAP50": 0.93125, "mAP50_95": 0.62861},
+ "per_class_AP50_from_PR_legend": {"drone": 0.918, "bird": 0.837, "airplane": 0.990, "helicopter": 0.981},
+ "confusion_counts_pred_x_true": {
+   "classes": ["drone", "bird", "airplane", "helicopter", "background"],
+   "pred_drone": [2629, 0, 0, 0, 191],
+   "pred_bird": [1, 227, 0, 0, 78],
+   "pred_airplane": [0, 4, 128, 0, 1],
+   "pred_helicopter": [0, 0, 0, 135, 3],
+   "pred_background": [337, 45, 5, 5, 0]
+ },
+ "derived_at_conf_0.25": {
+   "drone_instances": 2967, "drone_recall": 0.8861, "drone_precision": 0.9323,
+   "bird_instances": 276, "bird_labelled_as_drone": 0,
+   "background_detections_labelled_drone": 191
+ }
+}

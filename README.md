@@ -224,9 +224,86 @@ helicopter).
 
 ## Notes
 
-- Default dashboard credentials are `admin` / `admin` (`central_server/users.json` and
-  `config.py`). Change them before any non-local use.
+- Dashboard users are read from `central_server/users.json`, which is not versioned. Copy
+  `central_server/users.example.json` to `central_server/users.json` and set your own
+  passwords; the example and `config.py` contain demo credentials (`admin` / `admin`) that
+  must be changed before any non-local use.
 - `logs/` (CSV telemetry) and `vlogs/` (MP4 event recordings) are created at runtime.
 - This is a research prototype; see the project paper for performance figures and the
   known limitations (multi-target re-identification, monocular range uncertainty, and the
   simulation-to-real gap).
+
+---
+
+## Hardware (bill of materials)
+
+| Item | Qty per node | Notes |
+|---|---|---|
+| Raspberry Pi 5 | 1 | edge computer (CPU-only inference, no accelerator) |
+| Raspberry Pi Camera Module | 1 | `real_camera` mode |
+| USB HDMI capture device | 1 | `simulation` mode (UE5 output → Pi) |
+| PCA9685 16-channel PWM driver (I2C) | 1 | servo driver |
+| SG90 micro servo | 2 | pan (0–180°) and tilt (15–165°) |
+| Pan-tilt bracket, servo power supply (5 V power bank), cabling | 1 | |
+| Wi-Fi router | 1 per site | local network between nodes and server |
+
+---
+
+## Reproducing the results of the paper
+
+The `paper/` folder contains the recorded session logs and the scripts that regenerate
+every figure and table of the revised manuscript (IJIRA, revision R1).
+
+| Folder / file | Content |
+|---|---|
+| `paper/logs/pisentinel.log` | node 1 log of the 23 May 2026 dual-node UE5 session (`[SERVO]`, `[LATENCY]`, `[STATUS]`) |
+| `paper/logs/fusion.log` | server log of the same session (`[GTM] ingest`, `[FUSION_LAT]`) |
+| `paper/analysis/log_analysis.py` | control, fusion-uncertainty and timing statistics and figures |
+| `paper/analysis/loop_rate.py` | realised loop rate from the logging interval |
+| `paper/analysis/fusion_mc.py` | Monte Carlo comparison of geolocation estimators with known truth |
+| `paper/analysis/tracker_ablation/` | tracker ablation and SORT / ByteTrack / OC-SORT / BoT-SORT comparison on frozen synthetic detections |
+| `paper/results/` | the JSON/CSV/PNG outputs used in the manuscript |
+| `training/` | P2 model definition, training arguments, validation curves and confusion matrices |
+| `weights/` | trained four-class detector (PyTorch); the ncnn export is in `models/` |
+| `configs/config_sentinel02.py` | configuration of the second node in the dual-node session |
+
+```bash
+pip install numpy scipy pandas matplotlib opencv-python filterpy motmetrics boxmot==26.0.0
+cd paper/analysis
+python log_analysis.py ../logs ../results
+python loop_rate.py ../logs/pisentinel.log ../results/loop_rate.json
+python fusion_mc.py ../results
+cd tracker_ablation
+python make_variant.py deployed          # parameterised copy of the tracker as deployed in the sessions
+python run_ablation.py . deployed ../../results 10
+python summarize.py ../../results
+python verify_release.py . ../../..      # released tracking/ == "unit-corrected" variant
+```
+`deployed/` holds the tracker files as they were when the logs were recorded;
+`run_ablation.py` first checks that the parameterised copy reproduces them exactly.
+Run it from a scratch directory if you do not want BoxMOT to place model files in the
+current directory.
+
+### Training
+
+The detector was trained with Ultralytics (8.3.233 for the single-class models, 8.4.20 for
+the four-class model) on Google Colab (A100):
+
+```bash
+yolo train model=training/yolo11n-p2.yaml data=<dataset>/data.yaml epochs=200 imgsz=320 batch=32 pretrained=yolo11n.pt
+yolo export model=weights/pisentinel_v3_yolo11n-p2_320.pt format=ncnn imgsz=320   # FP32
+```
+The four-class run used `batch=256`; see `training/args.yaml`. The dataset is available from
+Roboflow Universe (`relaxw0w/drone-detection-new-peksv-ayinf`).
+
+### Changes in this release (revision R1)
+
+- Tracker motion thresholds that were tuned in px/frame (fast/aggressive speed, stationary
+  damping, divergence deletion, ghost cleanup, direction-bonus speed) are now compared with
+  velocities in px/s (×`TARGET_FPS`). The recorded sessions in `paper/logs` were produced
+  with the earlier version.
+- The priority score converts Kalman velocities to px/frame before computing the image-plane
+  time to centre, approach rate, speed and acceleration terms.
+- The lost-target speed threshold of the pan-tilt controller uses the same conversion.
+- The server triangulates two bearings only if the ray intersection angle is at least 15°
+  and otherwise uses inverse-variance weighting.

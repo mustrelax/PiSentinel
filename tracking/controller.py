@@ -637,7 +637,7 @@ class TrackingController:
             if active_track.hits < 10:
                 effective_dead_zone = 9999
                 speed_factor = 0.0
-            elif avg_speed < 5.0:
+            elif avg_speed < 5.0 * config.TARGET_FPS:
                 effective_dead_zone = dead_zone * 2
                 speed_factor = 0.1
             else:

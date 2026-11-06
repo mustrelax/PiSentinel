@@ -1,0 +1,38 @@
+{
+  "n_samples": 11967,
+  "session_span_s": 2255.778,
+  "logging_rate_hz": 5.305043315432636,
+  "median_log_interval_s": 0.171,
+  "n_tracks": 44,
+  "n_tracks_ge50": 12,
+  "error_px": {
+    "n": 11967,
+    "mean": 9.060783822177655,
+    "median": 5.8,
+    "std": 21.288910980234867,
+    "p90": 7.3,
+    "p95": 23.73999999999978,
+    "p99": 104.90400000000008,
+    "max": 332.6
+  },
+  "error_deg_median": 0.3461653237839451,
+  "error_deg_p95": 1.416890480453583,
+  "frac_within_40px": 0.9668254366173644,
+  "frac_within_8px": 0.9145149160190524,
+  "pid_mag_mean_deg": 0.057760534795570154,
+  "ff_mag_mean_deg": 0.0031393842282868307,
+  "cmd_mag_mean_deg": 0.05996296470961281,
+  "cmd_mag_p95_deg": 0.26839933982499536,
+  "ff_active_frac": 0.09425921283529706,
+  "sat_frac": 0.01612768446561377,
+  "per_track_median_px": {
+    "median_of_medians": 5.9,
+    "iqr_low": 4.1,
+    "iqr_high": 6.8375
+  },
+  "lock_events": 49,
+  "locked_to_lost_events": 48,
+  "fig_track_id": 93,
+  "fig_track_samples": 2701,
+  "fig_track_duration_s": 483.155
+}

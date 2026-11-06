@@ -18,8 +18,9 @@ class Track:
     DELETED = 3
     
     # Speed thresholds
-    FAST_MOTION_THRESHOLD = 12.0
-    AGGRESSIVE_MODE_THRESHOLD = 18.0
+    # Velocities are in px/s (measured dt); thresholds were tuned in px/frame at 30 fps.
+    FAST_MOTION_THRESHOLD = 12.0 * config.TARGET_FPS
+    AGGRESSIVE_MODE_THRESHOLD = 18.0 * config.TARGET_FPS
     
     # SCREEN BOUNDARIES (with margin)
     SCREEN_MARGIN = 100  # pixels outside screen before considering "escaped"
@@ -330,7 +331,7 @@ class Track:
         if self.time_since_update > 3:
             avg_speed = self.get_average_speed()
 
-            if avg_speed < 3.0:
+            if avg_speed < 3.0 * config.TARGET_FPS:
                 # STATIONARY: Very aggressive damping - stay in place!
                 damping = 0.5 ** self.time_since_update
                 damping = max(damping, 0.01)  # Almost zero
@@ -452,7 +453,7 @@ class Track:
             return True
         
         # IMMEDIATE DELETE: Kalman diverged (unrealistic state)
-        if self.get_current_speed() > 150:  # Way too fast
+        if self.get_current_speed() > 150 * config.TARGET_FPS:  # Way too fast
             return True
         
         # Delete tentative tracks that never confirmed

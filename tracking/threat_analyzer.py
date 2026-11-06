@@ -126,10 +126,15 @@ class SwarmAwareThreatAnalyzer:
                 sy >= -margin and sy <= config.FRAME_HEIGHT + margin)
 
     @staticmethod
+    def _velocity_px_per_frame(track):
+        # Kalman velocity is in px/s; the priority terms below were tuned in px/frame.
+        return track.kf.x[2] / config.TARGET_FPS, track.kf.x[3] / config.TARGET_FPS
+
+    @staticmethod
     def calculate_time_to_impact(track, center_x, center_y):
         # Calculate time until target reaches center (Time-To-Impact mevzusu).
         sx, sy = track.kf.x[0], track.kf.x[1]
-        vx, vy = track.kf.x[2], track.kf.x[3]
+        vx, vy = SwarmAwareThreatAnalyzer._velocity_px_per_frame(track)
 
         # Vector to center
         to_center_x = center_x - sx
@@ -159,7 +164,7 @@ class SwarmAwareThreatAnalyzer:
     def calculate_approach_rate(track, center_x, center_y):
         # Calculate approach speed (px/frame). (+: coming, -: going)
         sx, sy = track.kf.x[0], track.kf.x[1]
-        vx, vy = track.kf.x[2], track.kf.x[3]
+        vx, vy = SwarmAwareThreatAnalyzer._velocity_px_per_frame(track)
 
         # Direction to center (normalized)
         to_center_x = center_x - sx
@@ -181,7 +186,7 @@ class SwarmAwareThreatAnalyzer:
     def predict_trajectory(track, prediction_seconds=3.0):
         # Predict position 3 seconds ahead (ballistic model).
         sx, sy = track.kf.x[0], track.kf.x[1]
-        vx, vy = track.kf.x[2], track.kf.x[3]
+        vx, vy = SwarmAwareThreatAnalyzer._velocity_px_per_frame(track)
 
         # Ballistic prediction
         frames_ahead = prediction_seconds * config.TARGET_FPS
@@ -201,7 +206,7 @@ class SwarmAwareThreatAnalyzer:
         if len(track.speed_history) < 3:
             return 1.0
 
-        recent_speeds = list(track.speed_history)[-3:]
+        recent_speeds = [v / config.TARGET_FPS for v in list(track.speed_history)[-3:]]
         speed_delta = recent_speeds[-1] - recent_speeds[0]
 
         # Rapid acceleration (threat increase)
@@ -441,7 +446,7 @@ class SwarmAwareThreatAnalyzer:
         tti_norm = max(0.0, min(1.0 - tti / config.THREAT_ZONE_YELLOW_TTI, 1.0))
 
         # --- 4. VELOCITY (overall speed, not just approach) ---
-        speed = track.get_average_speed()
+        speed = track.get_average_speed() / config.TARGET_FPS
         velocity_norm = min(speed / config.VELOCITY_NORM_MAX, 1.0)
         # Acceleration factor nudges velocity component slightly (1.0–1.3x)
         accel = SwarmAwareThreatAnalyzer.calculate_acceleration_factor(track)

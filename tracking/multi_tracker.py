@@ -114,7 +114,7 @@ class MultiObjectTracker:
             speed = math.sqrt(vx**2 + vy**2)
             
             # Only delete if REALLY diverged
-            if speed > 120:  # Very unrealistic speed
+            if speed > 120 * config.TARGET_FPS:  # Very unrealistic speed
                 ghost_ids.append(track.track_id)
                 continue
             

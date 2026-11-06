@@ -107,7 +107,7 @@ class HungarianMatcher:
                 
                 # VELOCITY PREDICTION BONUS
                 # If detection is in predicted direction, lower cost
-                if speed > 2.0:
+                if speed > 2.0 * config.TARGET_FPS:
                     det_cx = (det_box[0] + det_box[2]) / 2
                     det_cy = (det_box[1] + det_box[3]) / 2
                     pred_cx = (pred_box[0] + pred_box[2]) / 2

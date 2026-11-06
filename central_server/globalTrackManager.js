@@ -59,7 +59,9 @@ const AMBIGUITY_RATIO = 1.5;        // best dNorm must beat second-best by this 
                                     // multi-target manoeuvres.
 const VEL_EMA_ALPHA = 0.4;          // EMA on trail-derived velocity. Smoother velocity → tighter
                                     // _gateMatch prediction → fewer mis-associations under jitter.
-const PARALLEL_SIN_THRESH = 0.05;   // ~3° — fall back when bearing rays too parallel
+// Triangulate only if the ray intersection angle is >= 15 deg (simulation study,
+// manuscript Sec. 4.4); otherwise fall back to inverse-variance weighting.
+const PARALLEL_SIN_THRESH = Math.sin(15 * Math.PI / 180);
 const SIN_FLOOR = 0.1;              // min sin(intersection_angle) for GDOP scaling
 const MIN_SIGMA = 0.5;              // floor on per-contributor σ to avoid div-by-zero
 const ORPHAN_TTL_MS = 5000;         // orphan track lifetime before hard delete

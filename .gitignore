@@ -1,0 +1,35 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Node ---
+node_modules/
+central_server/node_modules/
+
+# --- Runtime logs and recordings (generated at runtime) ---
+*.log
+logs/
+vlogs/
+central_server/logs/
+central_server/vlogs/
+
+# --- Secrets / local config ---
+.env
+*.env
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Local credentials for the dashboard (copy from users.example.json) ---
+central_server/users.json
+
+# --- Recorded session logs used in the paper are versioned ---
+!paper/logs/
+!paper/logs/*.log
