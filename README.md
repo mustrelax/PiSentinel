@@ -307,3 +307,11 @@ Roboflow Universe (`relaxw0w/drone-detection-new-peksv-ayinf`).
 - The lost-target speed threshold of the pan-tilt controller uses the same conversion.
 - The server triangulates two bearings only if the ray intersection angle is at least 15°
   and otherwise uses inverse-variance weighting.
+
+---
+
+## License
+
+PiSentinel is released under the GNU Affero General Public License v3.0 (see
+`LICENSE`). The detector is trained and exported with Ultralytics YOLO, which is itself
+licensed under AGPL-3.0.
